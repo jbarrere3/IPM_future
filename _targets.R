@@ -70,7 +70,7 @@ list(
   # Filter data based on species present in IPM and disturbance regimes
   # -- select NFI plots
   tar_target(NFI_plots_selected, select_NFI_plots(
-    NFI_data, NFI_disturbance, NFI_climate, nclim = 10, nplots.per.clim = 100)), 
+    NFI_data, NFI_disturbance, NFI_climate, nclim = 10, nplots.per.clim = 200)), 
   # -- subset all data
   tar_target(NFI_data_sub, subset(
     NFI_data, plotcode %in% NFI_plots_selected$plotcode)),
@@ -125,7 +125,10 @@ list(
   tar_target(simulations, make_simulations(
     species_distrib, species_mu, species_list, climate_dist_dflist,
     simul_list, ID.simulation), pattern = map(ID.simulation), 
-    iteration = "vector", format = "file")
+    iteration = "vector", format = "file"), 
+  
+  # Extract output oof the simulations
+  tar_target(sim_output, get_simulations_output(simulations))
   
   
 )

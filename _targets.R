@@ -23,7 +23,8 @@ lapply(grep("R$", list.files("R"), value = TRUE), function(x) source(file.path("
 # install if needed and load packages
 packages.in <- c("dplyr", "ggplot2", "matreex", "tidyr", "readxl", "cowplot",
                  "data.table", "factoextra", "terra", "ggmcmc", "R2jags", 
-                 "betareg", "car", "scales", "MASS")
+                 "betareg", "car", "scales", "MASS", "broom.mixed", "lme4", 
+                 "modi")
 for(i in 1:length(packages.in)){
   if(!(packages.in[i] %in% rownames(installed.packages()))){
     install.packages(packages.in[i])
@@ -81,6 +82,19 @@ list(
   
   
   ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  # -- Load and format traits data ---- 
+  ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  
+  # -- Traits data file
+  tar_target(traits_file, "data/Traits/traits.csv", format = "file"),
+  # -- Read traits data
+  tar_target(traits, fread(traits_file)),
+  # -- Get all species included in the simulations for filtering
+  tar_target(sp.in.sim, gsub("\\ ", "\\_", unique(species_list$species))),
+  # -- Get coordinates on the pca axis per species
+  tar_target(pca1_per_species, get_pc1_per_species(traits, sp.in.sim)), 
+  
+  ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
   # -- Get distributions of storm and fire intensity ---- 
   ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
   
@@ -127,8 +141,19 @@ list(
     simul_list, ID.simulation), pattern = map(ID.simulation), 
     iteration = "vector", format = "file"), 
   
-  # Extract output oof the simulations
-  tar_target(sim_output, get_simulations_output(simulations))
+  # Extract output of the simulations
+  tar_target(sim_output, get_simulations_output(simulations)), 
+  
+  # Plot of the simulations
+  tar_target(fig_climate_effect, plot_climate_effect(
+    sim_output, simul_list, pca1_per_species, "output/fig/analyses"), 
+    format = "file"),
+  tar_target(fig_temporalchange, plot_temporalchange(
+    sim_output, simul_list, pca1_per_species, "output/fig/analyses_temporalchange"), 
+    format = "file"),
+  tar_target(fig_magnitudechange, plot_magnitudechange(
+    sim_output, simul_list, pca1_per_species, "output/fig/analyses_magnitudechange"), 
+    format = "file")
   
   
 )

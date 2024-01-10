@@ -196,6 +196,27 @@ get_Istorm_param = function(intensity_file){
 }
 
 
+#' Get coordinate in first pca traits axis per species
+#' @param data_traits dataframe containing trait value per species
+get_pc1_per_species <- function(data_traits, sp.in.sim){
+  
+  # Compile the traits data
+  data_traits.in = data_traits %>%
+    filter(species %in% sp.in.sim) %>%
+    drop_na()
+  
+  # Make the PCA
+  pca <- prcomp((data_traits.in %>% dplyr::select(-species)), 
+                center = T, scale = T)
+  
+  # Extract data for individuals
+  out = data_traits.in
+  out$pca1 = get_pca_ind(pca)[[1]][, 1]
+  
+  # return the output
+  return(out)
+}
+
 
 #' Function to prepare disturbance and climate dataframe for each plot
 #' @param model_fire_vpd model and data linking disturbance intensity to vpd
@@ -661,8 +682,16 @@ make_simulations = function(
     # Read the species
     list.sp[[i]] = readRDS(species_mu[id.mu])
     
-    # Change initial distribution
-    list.sp[[i]]$init_pop <- def_init_k(distributions.in[[i]]*0.03)
+    # Convert the mesh from basal area per ha to number of tree per ha
+    # -- mesh in basal area (m2)
+    mesh_ba.i = pi*(list.sp[[i]]$IPM$mesh/2000)^2
+    # -- divide size distribution in basal area per m2 by mesh in m2
+    distrib.i = distributions.in[[i]]/mesh_ba.i
+    # -- Set na value to 0 (delay)
+    distrib.i[which(is.na(distrib.i))] = 0
+    
+    # Use the new distribution in N/ha to initialize the population 
+    list.sp[[i]]$init_pop <- def_init_k(distrib.i)
     
   }
   
@@ -777,35 +806,37 @@ get_simulations_output = function(simulations){
     }
     
     # Data with structural information
-    # data.dbh.in = sim.in %>%
-    #   filter(var == "n" & !equil) %>%
-    #   dplyr::select(size, time, species, value) %>%
-    #   rbind((sim.in %>%
-    #            filter(var == "n" & !equil) %>%
-    #            group_by(size, time) %>% summarize(value = mean(value)) %>%
-    #            ungroup() %>% mutate(species = "all") %>%
-    #            dplyr::select(size, time, species, value))) %>%
-    #   group_by(size, time, species) %>%
-    #   summarize(ntot = sum(value)) %>%
-    #   ungroup() %>% group_by(time, species) %>%
-    #   filter(size > 0) %>%
-    #   mutate(ntot_size = ntot*size) %>%
-    #   summarize(dbh.mean = weighted.mean(size, w = ntot))
+    data.dbh.in = sim.in %>%
+      filter(var == "n" & !equil) %>%
+      dplyr::select(size, time, species, value) %>%
+      rbind((sim.in %>%
+               filter(var == "n" & !equil) %>%
+               group_by(size, time) %>% summarize(value = mean(value)) %>%
+               ungroup() %>% mutate(species = "all") %>%
+               dplyr::select(size, time, species, value))) %>%
+      group_by(size, time, species) %>%
+      summarize(ntot = sum(value)) %>%
+      ungroup() %>% group_by(time, species) %>%
+      filter(size > 0) %>%
+      mutate(ntot_size = ntot*size) %>%
+      summarize(dbh.mean = weighted.mean(size, w = ntot), 
+                dbh.var = weighted.var(size, w = ntot))
     
     # Diversity along time
     data.div.in = sim.in %>%
       filter(var == "BAsp" & !equil) %>%
       group_by(time) %>%
-      mutate(p = value/sum(.$value), 
+      mutate(p = value/sum(value), 
              plnp = p*log(p)) %>%
       summarise(H = -sum(plnp)) 
     
     # Final dataset
     data.out = data.prod.in %>%
-      #left_join(data.dbh.in, by = c("time", "species")) %>%
+      left_join(data.dbh.in, by = c("time", "species")) %>%
       left_join(data.div.in, by = "time") %>%
       mutate(ID.simulation = ID.simulation) %>%
-      dplyr::select(ID.simulation, time, species, prod, H)
+      dplyr::select(ID.simulation, time, species, prod, H, BA, 
+                    dbh.mean, dbh.var)
     
     # Addd to final dataframe
     if(ID.simulation == 1) out = data.out

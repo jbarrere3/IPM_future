@@ -850,3 +850,105 @@ get_simulations_output = function(simulations){
   
 }
 
+
+
+#' Function to extract demographic traits from the model parameters
+#' @param sp.in.sim Species included in the simulations
+get_traits_demo = function(sp.in.sim){
+  
+  # Load climatic optimum for each species
+  data("climate_species")
+  
+  # Initialize list of fits (one element per species)
+  fit.list <- list()
+  
+  # Loop on all species to load and store demographic parameters
+  for(i in 1:length(sp.in.sim)){
+    eval(parse(text=paste0("fit.list$", sp.in.sim[i], " <- fit_", sp.in.sim[i])))
+  }
+  
+  # Calculate the mean dbh, competition (hetero and conspecific)
+  dbh.ref = 250
+  BASP.ref = 20
+  BANONSP.ref = 10
+  BATOT.ref = BASP.ref + BANONSP.ref
+  
+  # Provide mean value of competition across all species
+  data_species = data.frame(species = sp.in.sim, 
+                            BATOTSP = BASP.ref, 
+                            BATOTNonSP = BANONSP.ref, 
+                            logBATOTSP = log(BASP.ref),
+                            BATOTcomp = BATOT.ref,
+                            size = dbh.ref,
+                            logsize = log(dbh.ref),
+                            intercept = 1) %>%
+    # Add climatic data
+    left_join((climate_species %>%
+                 filter(N == 2) %>%
+                 dplyr::select(species = sp, wai, wai2, 
+                               waib, sgdd, sgdd2, sgddb)), 
+              by = "species") %>%
+    # Add interactions
+    mutate(`logsize:sgdd` = logsize*sgdd, `logsize:wai` = logsize*wai, 
+           `size:sgdd` = size*sgdd, `size:wai` = size*wai, 
+           `BATOTcomp:sgdd` = BATOTcomp*sgdd, `BATOTcomp:wai` = BATOTcomp*wai, 
+           `logsize:sgddb` = logsize*sgddb, `logsize:waib` = logsize*waib, 
+           `size:sgddb` = size*sgddb, `size:waib` = size*waib, 
+           `BATOTcomp:sgddb` = BATOTcomp*sgddb, `BATOTcomp:waib` = BATOTcomp*waib)
+  
+  # Initialize the output dataset
+  traits_demo = data.frame(species = sp.in.sim, recruitment = NA_real_, 
+                           delay = NA_real_, growth = NA_real_, survival = NA_real_)
+  
+  # Loop on all species to gather traits
+  for(i in 1:dim(traits_demo)[1]){
+    
+    # Species i
+    sp.i = traits_demo$species[i]
+    
+    # Give the delay from fit list
+    traits_demo$delay[i] = as.numeric(fit.list[[i]]$info["delay"])
+    
+    # Demographic parameters for species i
+    param.rec.i = fit.list[[i]]$rec$params_m
+    param.gr.i = fit.list[[i]]$gr$params_m
+    param.sv.i = fit.list[[i]]$sv$params_m
+    
+    # Associated vector of variables
+    val.rec.i = as.vector(subset(data_species, species == sp.i)[, names(param.rec.i)])
+    val.gr.i = as.vector(subset(data_species, species == sp.i)[, names(param.gr.i)])
+    val.sv.i = as.vector(subset(data_species, species == sp.i)[, names(param.sv.i)])
+    
+    # Get the demographic parameters
+    traits_demo$recruitment[i] = exp(sum(param.rec.i*val.rec.i))
+    traits_demo$growth[i] = sum(param.gr.i*val.gr.i)
+    traits_demo$survival[i] = 1 - plogis(sum(param.sv.i*val.sv.i))
+    
+  }
+  
+  # Return final dataframe
+  return(traits_demo)
+  
+}
+
+#' Get coordinate in first pca traits axis per species
+#' @param data_traits dataframe containing trait value per species
+get_pc12_per_species <- function(data_traits, sp.in.sim){
+  
+  # Compile the traits data
+  data_traits.in = data_traits %>%
+    filter(species %in% sp.in.sim) %>%
+    drop_na()
+  
+  # Make the PCA
+  pca <- prcomp((data_traits.in %>% dplyr::select(-species)), 
+                center = T, scale = T)
+  
+  # Extract data for individuals
+  out = data.frame(species = data_traits.in$species,
+                   pca1 = get_pca_ind(pca)[[1]][, 1], 
+                   pca2 = get_pca_ind(pca)[[1]][, 2])
+  
+  # return the output
+  return(out)
+}

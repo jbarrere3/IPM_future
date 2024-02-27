@@ -24,7 +24,7 @@ lapply(grep("R$", list.files("R"), value = TRUE), function(x) source(file.path("
 packages.in <- c("dplyr", "ggplot2", "matreex", "tidyr", "readxl", "cowplot",
                  "data.table", "factoextra", "terra", "ggmcmc", "R2jags", 
                  "betareg", "car", "scales", "MASS", "broom.mixed", "lme4", 
-                 "modi")
+                 "modi", "ggridges")
 for(i in 1:length(packages.in)){
   if(!(packages.in[i] %in% rownames(installed.packages()))){
     install.packages(packages.in[i])
@@ -93,6 +93,14 @@ list(
   tar_target(sp.in.sim, gsub("\\ ", "\\_", unique(species_list$species))),
   # -- Get coordinates on the pca axis per species
   tar_target(pca1_per_species, get_pc1_per_species(traits, sp.in.sim)), 
+  # -- Get demographic traits
+  tar_target(traits_demo, get_traits_demo(sp.in.sim)),
+  # -- Get coordinates on pca demographic axes per species
+  tar_target(pca_demo_per_species, get_pc12_per_species(
+    left_join(traits, traits_demo, by = "species"), sp.in.sim)), 
+  
+  
+  
   
   ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
   # -- Get distributions of storm and fire intensity ---- 
@@ -115,6 +123,13 @@ list(
   # Get the climate and disturbance dataframe for each plot and scenario
   tar_target(climate_dist_dflist, get_clim_dist_df(
     model_fire_vpd, Istorm_param, NFI_disturbance_sub, NFI_climate_sub)), 
+  
+  
+  
+  
+  ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  # -- Prepare species objects and run simulations ---- 
+  ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
   
   # Get the size distribution of each species in each plot
   tar_target(species_distrib, get_species_distrib(NFI_data_sub)),
@@ -144,6 +159,11 @@ list(
   # Extract output of the simulations
   tar_target(sim_output, get_simulations_output(simulations)), 
   
+  
+  ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  # -- Plots ---- 
+  ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  
   # Plot of the simulations
   tar_target(fig_climate_effect, plot_climate_effect(
     sim_output, simul_list, pca1_per_species, "output/fig/analyses"), 
@@ -152,8 +172,18 @@ list(
     sim_output, simul_list, pca1_per_species, "output/fig/analyses_temporalchange"), 
     format = "file"),
   tar_target(fig_magnitudechange, plot_magnitudechange(
-    sim_output, simul_list, pca1_per_species, "output/fig/analyses_magnitudechange"), 
-    format = "file")
+    sim_output, simul_list, pca_demo_per_species, "output/fig/analyses_magnitudechange"), 
+    format = "file"), 
+  
+  # Plot characteristics of data along the gradient
+  # -- Plot pca of recruitment traits
+  tar_target(fig_pca_demo_traits, plot_traits_pca12(
+    traits, traits_demo, sp.in.sim, "output/fig/description/pca_traits_demo.jpg"),
+      format = "file"), 
+  # -- Plot structure and composition along the climatic gradient
+  tar_target(fig_str_compo, plot_str_compo_climate(
+    NFI_climate_sub, NFI_data_sub, pca_demo_per_species, nclim = 10, 
+    dir.out = "output/fig/description"), format = "file")
   
   
 )

@@ -456,10 +456,11 @@ plot_temporalchange = function(sim_output, simul_list, pca1_per_species, dir.in)
 #' @param dir.in Directory where to save figures
 plot_magnitudechange = function(sim_output, simul_list, pca1_per_species, dir.in){
   
+  
+  
   # Extract simulation output on forest structure and productivity
   data.str = sim_output %>%
-    #filter(species == "all" & time > floor(max(sim_output$time)/2)) %>%
-    filter(species == "all") %>%
+    filter(species == "all" & time > floor(max(sim_output$time)/2)) %>%
     group_by(ID.simulation) %>%
     summarize(prod = mean(prod, na.rm = TRUE), 
               dbh.mean = mean(dbh.mean, na.rm = TRUE), 
@@ -467,33 +468,44 @@ plot_magnitudechange = function(sim_output, simul_list, pca1_per_species, dir.in
               stock = mean(BA, na.rm = TRUE)) %>%
     drop_na() 
   
+  
   # Extract simulation output on forest composition
   data.sp = sim_output %>%
-    filter(species != "all" & H > 0) %>%
-    #filter(time > floor(max(sim_output$time)/2)) %>%
+    filter(species != "all") %>%
+    # Only focus on the second half of the simulations
+    filter(time > floor(max(sim_output$time)/2)) %>%
+    # Add traits data
     left_join(pca1_per_species, by = "species") %>%
+    # Add climate margins data
+    left_join((matreex::climate_species %>% filter(N == 2) %>%
+                 dplyr::select(species = sp, optimum = PC1)), 
+              by = "species") %>%
     group_by(ID.simulation, time) %>%
     summarize(H = mean(H, na.rm = TRUE), 
               traits.pca1.mean = weighted.mean(pca1, w = BA), 
-              traits.pca2.mean = weighted.mean(pca2, w = BA)) %>%
+              traits.pca2.mean = weighted.mean(pca2, w = BA), 
+              opticlim.mean = weighted.mean(optimum, w = BA)) %>%
+    # Average metrics
     ungroup() %>% group_by(ID.simulation) %>%
     summarize(H = mean(H, na.rm = TRUE), 
               cwm1 = mean(traits.pca1.mean, na.rm = TRUE), 
-              cwm2 = mean(traits.pca2.mean, na.rm = TRUE)) %>%
+              cwm2 = mean(traits.pca2.mean, na.rm = TRUE), 
+              opticlim = mean(opticlim.mean, na.rm = TRUE)) %>%
     drop_na() 
   
   # Build data frame listing the variables to analyse
   data.var = data.frame(
     var = c("prod", "dbh.mean", "dbh.var", "H", "cwm1", 
-            "cwm2", "stock"), 
+            "cwm2", "stock", "opticlim"), 
     title = c("Productivity", "Mean_diameter", "Variance_diameter", 
-              "Species_diversity", "CWM1", "CWM2", "Stocking"), 
+              "Species_diversity", "CWM1", "CWM2", "Stocking", "Climate_optimum"), 
     label = c("Productivity", "Mean diameter", 
               "Structural diversity", "Species diversity", 
               "CWM1 \nHigh growth <--> High survival", 
               "CWM2 \nHigh <--> Low recruitment", 
-              "Total Basal Area\n(m2/ha)"), 
-    transfo = c("log", "log", "log", "log", "none", "none", "log")
+              "Total Basal Area\n(m2/ha)", 
+              "Mean species climatic optimum\n(hot-dry to cold-wet)"), 
+    transfo = c("log", "log", "log", "log", "none", "none", "log", "none")
   )
   
   # Join all data together
@@ -502,6 +514,8 @@ plot_magnitudechange = function(sim_output, simul_list, pca1_per_species, dir.in
     left_join(simul_list, by = "ID.simulation") %>%
     gather(key = "variable", value = "value", data.var$var) %>%
     drop_na()
+  
+  # Calculate the change relative to the reference scenario (ssp126 and no dist)
   data = data %>%
     left_join((data %>% filter(dist == "nodist" & ssp == "ssp126") %>%
                  dplyr::select(plotcode, variable, value.ref = value)), 
@@ -520,7 +534,7 @@ plot_magnitudechange = function(sim_output, simul_list, pca1_per_species, dir.in
     data.in = data %>%
       ungroup() %>% filter(variable == data.var$var[j]) %>%
       mutate(pca1sq = pca1^2, 
-             ssp = factor(ssp, levels = c("ssp126", "ssp370", "ssp585"))) %>%
+             ssp = factor(ssp, levels = c("ssp126", "ssp585"))) %>%
       dplyr::select(plotcode, climate, ssp, dist, pca1, pca1sq, var.change) %>%
       filter(!is.infinite(var.change)) %>%
       filter(var.change < quantile(.$var.change, 0.99, na.rm = TRUE) & 
@@ -586,7 +600,7 @@ plot_magnitudechange = function(sim_output, simul_list, pca1_per_species, dir.in
           } else { 
             # Otherwise, stop model selection
             selection.over = TRUE
-            }
+          }
         }
       }
     }
@@ -656,8 +670,267 @@ plot_magnitudechange = function(sim_output, simul_list, pca1_per_species, dir.in
       xlab("Position along the climate axis\n(Hot-dry to cold-wet)") + 
       ylab(paste0("Change in \n", data.var$label[j], " (%)")) + 
       scale_color_manual(values = c('dist' = "#343A40", 'nodist' = "#ADB5BD")) +
-      scale_fill_manual(values = c('ssp126' = "#0A9396", 'ssp370' = "#EE9B00", 
-                                   'ssp585' = "#AE2012")) +
+      scale_fill_manual(values = c('ssp126' = "#0A9396", 'ssp585' = "#AE2012")) +
+      theme(panel.background = element_rect(color = "black", fill = "white"), 
+            panel.grid = element_blank(), 
+            legend.key = element_blank())
+    
+    # Name of the files to save
+    file.residuals = paste0(dir.in, "/fig_residuals_", data.var$title[j], ".jpg")
+    file.effect = paste0(dir.in, "/fig_effect_", data.var$title[j], ".jpg")
+    
+    # Create directory if needed
+    create_dir_if_needed(file.effect)
+    
+    # Save plots
+    ggsave(file.residuals, plot.residuals, width = 17, height = 9 , units = "cm", 
+           dpi = 600, bg = "white")
+    ggsave(file.effect, plot.effect, width = 17, height = 9 , units = "cm", 
+           dpi = 600, bg = "white")
+    
+    # Add the saved plots to the output vector
+    out = c(out, file.residuals, file.effect)
+    
+  }
+  
+  
+  # Return the files saved
+  return(out)
+  
+  
+  
+}
+
+
+#' Plot the effect of climate and disturbances on temporal change in different variables
+#' @param sim_output formatted outputs of the simulations
+#' @param simul_list Informations on the simulations made
+#' @param pca1_per_species coordinates on the trait pca of each species
+#' @param dir.in Directory where to save figures
+plot_magnitudechange_2 = function(sim_output, simul_list, pca1_per_species, dir.in){
+  
+  # Extract simulation output on forest structure and productivity
+  data.str = sim_output %>%
+    filter(species == "all" & time > floor(max(sim_output$time)/2)) %>%
+    group_by(ID.simulation) %>%
+    summarize(prod = mean(prod, na.rm = TRUE), 
+              dbh.mean = mean(dbh.mean, na.rm = TRUE), 
+              dbh.var = mean(dbh.var, na.rm = TRUE), 
+              stock = mean(BA, na.rm = TRUE)) %>%
+    drop_na() 
+  
+  
+  # Extract simulation output on forest composition
+  data.sp = sim_output %>%
+    filter(species != "all") %>%
+    # Only focus on the second half of the simulations
+    filter(time > floor(max(sim_output$time)/2)) %>%
+    # Add traits data
+    left_join(pca1_per_species, by = "species") %>%
+    # Add climate margins data
+    left_join((climate_species %>% filter(N == 2) %>%
+                 dplyr::select(species = sp, optimum = PC1)), 
+              by = "species") %>%
+    group_by(ID.simulation, time) %>%
+    summarize(H = mean(H, na.rm = TRUE), 
+              traits.pca1.mean = weighted.mean(pca1, w = BA), 
+              traits.pca2.mean = weighted.mean(pca2, w = BA), 
+              opticlim.mean = weighted.mean(optimum, w = BA)) %>%
+    # Average metrics
+    ungroup() %>% group_by(ID.simulation) %>%
+    summarize(H = mean(H, na.rm = TRUE), 
+              cwm1 = mean(traits.pca1.mean, na.rm = TRUE), 
+              cwm2 = mean(traits.pca2.mean, na.rm = TRUE), 
+              opticlim = mean(opticlim.mean, na.rm = TRUE)) %>%
+    drop_na() 
+  
+  # Build data frame listing the variables to analyse
+  data.var = data.frame(
+    var = c("prod", "dbh.mean", "dbh.var", "H", "cwm1", 
+            "cwm2", "stock", "opticlim"), 
+    title = c("Productivity", "Mean_diameter", "Variance_diameter", 
+              "Species_diversity", "CWM1", "CWM2", "Stocking", "Climate_optimum"), 
+    label = c("Productivity", "Mean diameter", 
+              "Structural diversity", "Species diversity", 
+              "CWM1 \nHigh growth <--> High survival", 
+              "CWM2 \nHigh <--> Low recruitment", 
+              "Total Basal Area\n(m2/ha)", 
+              "Mean species climatic optimum\n(hot-dry to cold-wet)"), 
+    transfo = c("log", "log", "log", "log", "none", "none", "log", "none")
+  )
+  
+  # Join all data together
+  data = data.str %>%
+    left_join(data.sp, by = "ID.simulation") %>%
+    left_join(simul_list, by = "ID.simulation") %>%
+    gather(key = "variable", value = "value", data.var$var) %>%
+    drop_na()
+  
+  # Calculate the change relative to the reference scenario (ssp126 and no dist)
+  data = data %>%
+    left_join((data %>% filter(dist == "nodist" & ssp == "ssp126") %>%
+                 dplyr::select(plotcode, variable, value.ref = value)), 
+              by = c("plotcode", "variable")) %>%
+    mutate(var.change = 100*(value-value.ref)/value.ref, 
+           scenario = case_when(
+             dist == "nodist" & ssp == "ssp126" ~ "reference", 
+             dist == "nodist" & ssp == "ssp585" ~ "Climate change only", 
+             dist == "dist" & ssp == "ssp126" ~ "Disturbance only", 
+             dist == "dist" & ssp == "ssp585" ~ "Disturbance and climate change"
+           )) %>%
+    as.data.frame()
+  
+  
+  # Initialize output
+  out = c()
+  
+  # Loop on all variables for which to make analyses
+  for(j in 1:dim(data.var)[1]){
+    
+    # Restrict the dataset to the variable j
+    data.in = data %>%
+      ungroup() %>% filter(variable == data.var$var[j]) %>%
+      mutate(pca1sq = pca1^2, 
+             ssp = factor(ssp, levels = c("ssp126", "ssp585"))) %>%
+      dplyr::select(plotcode, climate, ssp, dist, pca1, pca1sq, var.change, scenario) %>%
+      filter(!is.infinite(var.change)) %>%
+      filter(var.change < quantile(.$var.change, 0.99, na.rm = TRUE) & 
+               var.change > quantile(.$var.change, 0.01, na.rm = TRUE)) %>%
+      filter(scenario != "reference")
+    
+    # Fit a first model
+    mod = lmer(var.change ~ pca1*scenario + pca1sq*scenario + (1|plotcode), 
+               data = data.in)
+    # Initialize boolean to stop model selection and counter of interactions removed
+    selection.over = FALSE; k=0
+    # Start while loop
+    while(!selection.over){
+      print(k)
+      # Simple and double interaction terms
+      terms.all.in = rownames(Anova(mod))[grep(":", rownames(Anova(mod)))]
+      terms.double.in = rownames(Anova(mod))[grep(":.+:", rownames(Anova(mod)))]
+      terms.simple.in = terms.all.in[which(!(terms.all.in %in% terms.double.in))]
+      # Initialize formula of the model
+      form = paste(gsub("\\:", "\\*", terms.all.in), collapse = " + ")
+      # First configuration : there are double interactions left
+      if(length(terms.double.in) > 0){
+        # First sub-configuration : all double interactinos are significant
+        if(!any(Anova(mod)[terms.double.in, 3] > 0.05)){
+          # We stop model selection, no interactions can be removed
+          selection.over = TRUE
+        }else{
+          # Otherwise, we remove the least significant double interaction 
+          # -- increase counter
+          k = k+1
+          # -- remove from double iteractions the least significant
+          terms.double.in = terms.double.in[
+            -which(Anova(mod)[terms.double.in, 3] == max(Anova(mod)[terms.double.in, 3]))]
+          # -- update vector containing all terms
+          terms.all.in = c(terms.simple.in, terms.double.in)
+          # -- New formula
+          form = paste(gsub("\\:", "\\*", terms.all.in), collapse = " + ")
+          # -- Fit model with the new formula 
+          eval(parse(text = paste0(
+            "mod = lmer(var.change ~ ", form, " + (1|plotcode), data = data.in)")))
+        }
+      }else{
+        # Second configuration : no more double interactions
+        # First sub-configuration : all simple interactinos are significant
+        if(!any(Anova(mod)[terms.simple.in, 3] > 0.05)){
+          # We stop model selection, no interactions can be removed
+          selection.over = TRUE
+        }else{
+          # Otherwise, we remove the least significant double interaction 
+          # -- increase counter
+          k = k+1
+          # -- remove from double iteractions the least significant
+          terms.simple.in = terms.simple.in[
+            -which(Anova(mod)[terms.simple.in, 3] == max(Anova(mod)[terms.simple.in, 3]))]
+          # -- update vector containing all terms
+          terms.all.in = c(terms.simple.in, terms.double.in)
+          # -- Only make new model if there are terms left in the formula
+          if(length(terms.all.in) > 0){
+            # -- New formula
+            form = paste(gsub("\\:", "\\*", terms.all.in), collapse = " + ")
+            # -- Fit model with the new formula 
+            eval(parse(text = paste0(
+              "mod = lmer(var.change ~ ", form, " + (1|plotcode), data = data.in)")))
+          } else { 
+            # Otherwise, stop model selection
+            selection.over = TRUE
+          }
+        }
+      }
+    }
+    
+    
+    # Make predictions based on fixed effects
+    # -- Extract fixed effects
+    beta = fixef(mod)
+    # -- Extract variance vocariance matrix
+    v = vcov(mod)
+    # -- Initialize data for predictions
+    newdata <- expand.grid(
+      pca1 = seq(from = quantile(data.in$pca1, 0.01), 
+                 to = quantile(data.in$pca1, 0.99), length.out = 100), 
+      scenario = unique(data.in$scenario)[order(unique(data.in$scenario))]) %>%
+      mutate(pca1sq = pca1^2, var.change = 0)
+    # -- Same formula without random plot
+    form <- formula(paste0("var.change ~ ", form))
+    # -- Generate matrix
+    X <- model.matrix(form, newdata)
+    # -- Prediction
+    pred <- X %*% beta
+    # -- Standard error of prediction
+    pred.se <- sqrt(diag(X %*% v %*% t(X))) 
+    # -- Criteria to calculate confidence interval
+    crit <- -qnorm(0.05/2)
+    # -- Calculate confidence interval
+    lwr <- pred-crit*pred.se 
+    upr <- pred+crit*pred.se
+    # -- Add to the prediction dataset
+    newdata = newdata %>% mutate(fit = pred, lwr = lwr, upr = upr)
+    
+    # Prepare points data for plotting
+    data.points = data.in %>%
+      group_by(climate, scenario) %>%
+      summarize(pca1 = mean(pca1), 
+                fit = mean(var.change, na.rm = TRUE), 
+                lwr = quantile(var.change, 0.05, na.rm = TRUE), 
+                upr = quantile(var.change, 0.95, na.rm = TRUE), 
+                sd = sd(var.change, na.rm = TRUE)) %>%
+      mutate(lwr = fit - sd, upr = fit + sd) %>%
+      mutate(x.pos = case_when(
+        scenario == "Disturbance only" ~ pca1 - 0.02*diff(range(.$pca1)), 
+        scenario == "Disturbance and climate change" ~ pca1 + 0.02*diff(range(.$pca1)), 
+        TRUE ~ pca1
+      )) 
+    
+    # Plot residuals
+    plot.residuals = ggplot(augment(mod), aes(.fitted, .resid)) + 
+      geom_point() +
+      geom_hline(yintercept = 0, linetype = "dashed") + 
+      geom_smooth(method = "loess")
+    
+    # Plot predictions of the model
+    plot.effect = newdata %>%
+      ggplot(aes(x = pca1, y = fit, group = scenario, 
+                 color = scenario, fill = scenario, ymin = lwr, ymax = upr)) + 
+      geom_hline(yintercept = 0, linetype = "dashed") +
+      geom_errorbar(data = data.points, aes(x = x.pos), 
+                    inherit.aes = TRUE, alpha = 0.5) +
+      geom_point(data = data.points, aes(x = x.pos), 
+                 inherit.aes = TRUE, shape = 21) + 
+      geom_line() + 
+      geom_ribbon(alpha = 0.3, color = NA) + 
+      xlab("Position along the climate axis\n(Hot-dry to cold-wet)") + 
+      ylab(paste0("Change in \n", data.var$label[j], " (%)")) + 
+      scale_color_manual(values = c('Disturbance only' = "#001219", 
+                                    'Climate change only' = "#CA6702", 
+                                    'Disturbance and climate change' = "#9B2226")) +
+      scale_fill_manual(values = c('Disturbance only' = "#005F73", 
+                                   'Climate change only' = "#EE9B00", 
+                                   'Disturbance and climate change' = "#AE2012")) +
       theme(panel.background = element_rect(color = "black", fill = "white"), 
             panel.grid = element_blank(), 
             legend.key = element_blank())
@@ -686,6 +959,7 @@ plot_magnitudechange = function(sim_output, simul_list, pca1_per_species, dir.in
   
   
 }
+
 
 
 

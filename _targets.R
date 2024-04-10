@@ -24,7 +24,8 @@ lapply(grep("R$", list.files("R"), value = TRUE), function(x) source(file.path("
 packages.in <- c("dplyr", "ggplot2", "matreex", "tidyr", "readxl", "cowplot",
                  "data.table", "factoextra", "terra", "ggmcmc", "R2jags", 
                  "betareg", "car", "scales", "MASS", "broom.mixed", "lme4", 
-                 "modi", "ggridges", "purrr", "checkmate")
+                 "modi", "ggridges", "purrr", "checkmate", "FD", "sf", 
+                 "rnaturalearth")
 for(i in 1:length(packages.in)){
   if(!(packages.in[i] %in% rownames(installed.packages()))){
     install.packages(packages.in[i])
@@ -71,7 +72,7 @@ list(
   # Filter data based on species present in IPM and climate
   # -- select NFI plots
   tar_target(NFI_plots_selected, select_NFI_plots(
-    NFI_data, NFI_climate, nclim = 10, nplots.per.clim = 200)), 
+    NFI_data, NFI_climate, nclim = 10, nplots.per.clim = 1000)), 
   # -- subset all data
   tar_target(NFI_data_sub, subset(
     NFI_data, plotcode %in% NFI_plots_selected$plotcode)),
@@ -126,18 +127,15 @@ list(
   # -- Traits data file
   tar_target(traits_file, "data/Traits/traits.csv", format = "file"),
   tar_target(traitsNFI_file, "data/Traits/traitsNFI.csv", format = "file"),
+  tar_target(traits_complete_file, "data/Traits/table_traits.csv", format = "file"),
   # -- Read traits data
   tar_target(traits, fread(traits_file)),
   tar_target(traitsNFI, fread(traitsNFI_file)),
+  tar_target(traits_complete, fread(traits_complete_file)),
   # -- Get all species included in the simulations for filtering
   tar_target(sp.in.sim, gsub("\\ ", "\\_", unique(species_list$species))),
-  # -- Get coordinates on the pca axis per species
-  tar_target(pca1_per_species, get_pc1_per_species(traits, sp.in.sim)),
-  # -- Get demographic traits
-  tar_target(traits_demo, get_traits_demo(sp.in.sim)),
   # -- Get coordinates on pca demographic axes per species
-  tar_target(pca_demo_per_species, get_pc12_per_species(
-    left_join(traits, traits_demo, by = "species"), sp.in.sim)),
+  tar_target(pca_demo_per_species, get_pc12_per_species(traits_complete, sp.in.sim)),
   
   
   
@@ -158,6 +156,9 @@ list(
   
   # Get the occurence of fire and storm per plot
   tar_target(dist_occurence, get_dist_occurence(climate_dist_dflist)),
+  
+  # Extend for the simulation the disturbances over several years
+  tar_target(climate_dist_dflist_ext, extend_disturbance(climate_dist_dflist, 5)),
 
   
   
@@ -197,7 +198,7 @@ list(
   tar_target(ID.simulation, c(1:dim(simul_list)[1])),
   # -- Make simulations
   tar_target(simulations, make_simulations(
-    species_distrib, species_mu, species_list, climate_dist_dflist,
+    species_distrib, species_mu, species_list, climate_dist_dflist_ext,
     regional_pool, simul_list, disp_kernel, ID.simulation), 
     pattern = map(ID.simulation), iteration = "vector", format = "file"),
 
@@ -210,24 +211,41 @@ list(
   ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
   # Plot of the simulations
-  # - Approach with a climate effect and a disturbance effect
+  # - Approach with one factor including both disturbance and climate
   tar_target(fig_magnitudechange, plot_magnitudechange(
     sim_output, simul_list, pca_demo_per_species, "output/fig/climate_effect_per_variable"),
     format = "file"), 
-  # - Approach with one factor including both disturbance and climate
-  tar_target(fig_magnitudechange2, plot_magnitudechange_2(
-    sim_output, simul_list, pca_demo_per_species, "output/fig/climate_effect_per_variable_2"),
-    format = "file")
-  # 
-  # # Plot characteristics of data along the gradient
-  # # -- Plot pca of recruitment traits
-  # tar_target(fig_pca_demo_traits, plot_traits_pca12(
-  #   traits, traits_demo, sp.in.sim, "output/fig/description/pca_traits_demo.jpg"),
-  #     format = "file"), 
-  # # -- Plot structure and composition along the climatic gradient
-  # tar_target(fig_str_compo, plot_str_compo_climate(
-  #   NFI_climate_sub, NFI_data_sub, pca_demo_per_species, nclim = 10, 
-  #   dir.out = "output/fig/description"), format = "file")
+  # - Same approach but without a climatic effect
+  tar_target(fig_magnitudechange_noclim, plot_magnitudechange_noclim(
+    sim_output, simul_list, pca_demo_per_species, 
+    "output/fig/climate_effect_per_variable_noclim.jpg"), format = "file"), 
+  
+  # Plots for methods
+  # -- Plot the frequency of disturbances along the climatic axis
+  tar_target(fig_dist_frequency, plot_dist_frequency(
+    simul_list, climate_dist_dflist, "output/fig/methods/dist_freq.jpg"), 
+    format = "file"), 
+  # -- Plot pca of functional traits
+  tar_target(fig_pca_demo_traits, plot_traits_pca12(
+    traits_complete, sp.in.sim, "output/fig/methods/pca_traits_demo.jpg"),
+      format = "file"), 
+  # -- Plot a mpa of the NFI plots selected
+  tar_target(fig_map_NFI, map_NFI_plots(
+    NFI_plots_selected, "output/fig/methods/map.jpg"), format = "file"), 
+  
+  
+  
+  
+  # Additional analysis with classification in succession stage
+  # - Classify plots in succession stage
+  tar_target(NFI_succession, classify_succession(NFI_data_sub, NFI_plots_selected)), 
+  # - plot the resulting size distribution per succession and climate
+  tar_target(fig_distrib_succession, plot_succession_distrib(
+    NFI_succession, "output/fig/succession/fig_distrib.jpg"), format = "file"),
+  # - Plot the effect of climate for each succession stage
+  tar_target(fig_climeffect_perdqm, plot_magnitudechange_perdqm(
+    sim_output, NFI_succession, simul_list, pca_demo_per_species, 
+    "output/fig/succession/fig_climeffect.jpg"), format = "file") 
   
   
 )

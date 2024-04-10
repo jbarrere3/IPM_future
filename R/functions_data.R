@@ -401,6 +401,52 @@ get_clim_dist_df = function(NFI_disturbance, NFI_climate, I_per_disturbance){
 }
 
 
+#' Extend the climate list to apply disturbances over several years
+#' @param climate_dist_dflist list of distrurbance and climate per plot simulated
+#' @param dist.duration Over how many years should we apply the disturbance
+extend_disturbance = function(climate_dist_dflist, dist.duration){
+  
+  # Vector of years simulated
+  t.vec = climate_dist_dflist[[1]][[1]]$climate$t
+  
+  # Initialize output
+  out = climate_dist_dflist
+  
+  # Loop on all plotcodes
+  for(i in 1:length(names(climate_dist_dflist))){
+    # Loop on all ssp scenarios
+    for(j in 1:length(names(climate_dist_dflist[[i]]))){
+      # Extract disturbance table ij
+      dist.ij = climate_dist_dflist[[i]][[j]]$disturbance
+      # Extend disturbance only if disturbance occured
+      if(dim(dist.ij)[1] > 0){
+        # Initialize the new disturbance dataframe
+        dist.ij.new = dist.ij
+        # Loop on all disturbances
+        for(k in 1:dim(dist.ij)[1]){
+          # Initialize extra years for disturbance k
+          dist.ijk = data.frame(type = dist.ij$type[k], IsSurv = FALSE, 
+                                t = c((dist.ij$t[k]+1):(dist.ij$t[k] + dist.duration - 1)), 
+                                intensity = dist.ij$intensity[k])
+          # If there are other disturbances after, remove overlapping disturbances
+          if(k < dim(dist.ij)[1]) dist.ijk = filter(dist.ijk, t < dist.ij$t[k+1])
+          # If it is the last disturbance, remove occurrences beyond maximum time
+          if(k == dim(dist.ij)[1]) dist.ijk = filter(dist.ijk, t <= max(t.vec))
+          # Add extra years to the new disturbance dataframe
+          dist.ij.new = rbind(dist.ij.new, dist.ijk)
+        }
+        # Order the new disturbance dataframe
+        dist.ij.new = dist.ij.new %>% arrange(t)
+        # Replace by the new disturbance dataset
+        out[[i]][[j]]$disturbance = dist.ij.new
+      }
+    }
+  }
+  
+  # Return the new list 
+  return(out)
+}
+
 
 #' Function to select plots based on whether species can be simulated or not
 #' @param NFI_data data of individual trees in NFI
@@ -638,6 +684,69 @@ make_regional_pool = function(NFI_plots_selected, NFI_forest_cover, coef_ba_reg)
 }
 
 
+#' Calculate dqm, classify plots in succession stage and fit distributions
+#' @param NFI_data_sub tree level data for the plots simulated
+#' @param NFI_plots_selected Plot level data for the plots simulated
+classify_succession = function(NFI_data_sub, NFI_plots_selected){
+  
+  # Compile data to make classes of quadratic diameter per climate
+  data_dqm = NFI_data_sub %>%
+    mutate(dbh1.weight = (dbh^2)*Nha) %>%
+    group_by(plotcode) %>%
+    summarize(dqm = sqrt(sum(dbh1.weight, na.rm = TRUE)/sum(Nha, na.rm = TRUE))) %>%
+    left_join(NFI_plots_selected[, c("plotcode", "climate")], by = "plotcode") %>%
+    ungroup() %>% group_by(climate) %>%
+    mutate(dqm033 = quantile(dqm, 0.33), dqm066 = quantile(dqm, 0.66)) %>%
+    ungroup() %>%
+    mutate(dqm_class = case_when(dqm < dqm033 ~ "succession1", 
+                                 dqm > dqm066 ~ "succession3", 
+                                 TRUE ~ "succession2")) %>%
+    dplyr::select(plotcode, climate, dqm, dqm_class)
+  
+  
+  # Initialize output dataframe
+  out = data.frame(plotcode = unique(NFI_data_sub$plotcode), 
+                   shape = NA_real_, scale = NA_real_)
+  
+  
+  # Loop on all plot codes
+  for(i in 1:dim(out)[1]){
+    print(i)
+    if(length(which(NFI_data_sub$plotcode == out$plotcode[i])) > 1){
+      
+      # - Vector if number of trees per ha
+      Nha.i = round(subset(NFI_data_sub, plotcode == out$plotcode[i])$Nha, 
+                    digits = 0)
+      # - Vector of dbh
+      dbh.i = round(subset(NFI_data_sub, plotcode == out$plotcode[i])$dbh, 
+                    digits = 0)
+      # - Initialize final vector of dbh
+      vec.i = c()
+      # - Loop on all trees
+      for(j in 1:length(dbh.i)) vec.i = c(vec.i, rep(dbh.i[j], Nha.i[j]))
+      # - Size distribution of plot i
+      distr.i = 
+        # - Add to final output
+        try(out$shape[i] <- as.numeric(fitdistr(
+          vec.i, densfun = "weibull", start = list(shape = 1, scale = 1))[[1]][1]), 
+          silent = TRUE)
+      try(out$scale[i] <- as.numeric(fitdistr(
+        vec.i, densfun = "weibull", start = list(shape = 1, scale = 1))[[1]][2]), 
+        silent = TRUE)
+      
+    }
+  }
+  
+  # Add quadratic diameter and succession stage
+  out = out %>%
+    left_join(data_dqm, by = "plotcode") %>%
+    dplyr::select(plotcode, climate, dqm_class, dqm, shape, scale)
+  
+  # Return output
+  return(out)
+  
+  
+}
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 ## Prepare and run simulations  ----
@@ -1213,11 +1322,15 @@ get_traits_demo = function(sp.in.sim){
 
 #' Get coordinate in first pca traits axis per species
 #' @param data_traits dataframe containing trait value per species
+#' @param sp.in.sim character vector listing species included in simulations
 get_pc12_per_species <- function(data_traits, sp.in.sim){
   
   # Compile the traits data
-  data_traits.in = data_traits %>%
+  data_traits.in = data_traits %>% 
+    mutate(species = ifelse(species == "Betula_sp", "Betula", species)) %>%
     filter(species %in% sp.in.sim) %>%
+    dplyr::select(-bark.thickness_mm)  %>%
+    rename("wood.density" = "wood.density_g.cm3", "H-D.ratio" = "height.dbh.ratio") %>%
     drop_na()
   
   # Make the PCA
@@ -1232,6 +1345,10 @@ get_pc12_per_species <- function(data_traits, sp.in.sim){
   # return the output
   return(out)
 }
+
+
+
+
 
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

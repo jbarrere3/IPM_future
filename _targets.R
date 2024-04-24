@@ -25,7 +25,7 @@ packages.in <- c("dplyr", "ggplot2", "matreex", "tidyr", "readxl", "cowplot",
                  "data.table", "factoextra", "terra", "ggmcmc", "R2jags", 
                  "betareg", "car", "scales", "MASS", "broom.mixed", "lme4", 
                  "modi", "ggridges", "purrr", "checkmate", "FD", "sf", 
-                 "rnaturalearth")
+                 "rnaturalearth", "sinkr", "egg")
 for(i in 1:length(packages.in)){
   if(!(packages.in[i] %in% rownames(installed.packages()))){
     install.packages(packages.in[i])
@@ -127,15 +127,18 @@ list(
   # -- Traits data file
   tar_target(traits_file, "data/Traits/traits.csv", format = "file"),
   tar_target(traitsNFI_file, "data/Traits/traitsNFI.csv", format = "file"),
-  tar_target(traits_complete_file, "data/Traits/table_traits.csv", format = "file"),
+  tar_target(wood.density_file, "data/Traits/GlobalWoodDensityDatabase.xls", format = "file"),
+  tar_target(shade.tolerance_file, "data/Traits/shade_tolerance_FrenchNFI.csv", format = "file"),
+  tar_target(TRY_file, "data/Traits/TRY_data_request_21092.txt", format = "file"),
   # -- Read traits data
   tar_target(traits, fread(traits_file)),
   tar_target(traitsNFI, fread(traitsNFI_file)),
-  tar_target(traits_complete, fread(traits_complete_file)),
+  # -- Compile traits from different databases
+  tar_target(traits_compiled, compile_traits(
+    wood.density_file, traitsNFI_file, shade.tolerance_file, TRY_file, sp.in.sim)),
   # -- Get all species included in the simulations for filtering
   tar_target(sp.in.sim, gsub("\\ ", "\\_", unique(species_list$species))),
-  # -- Get coordinates on pca demographic axes per species
-  tar_target(pca_demo_per_species, get_pc12_per_species(traits_complete, sp.in.sim)),
+  
   
   
   
@@ -204,48 +207,62 @@ list(
 
   # Extract output of the simulations
   tar_target(sim_output, get_simulations_output(simulations)),
-
+  tar_target(sim_output_short, get_simulations_output_short(simulations)),
+  
 
   ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
   # -- Plots ----
   ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-  # Plot of the simulations
-  # - Approach with one factor including both disturbance and climate
-  tar_target(fig_magnitudechange, plot_magnitudechange(
-    sim_output, simul_list, pca_demo_per_species, "output/fig/climate_effect_per_variable"),
-    format = "file"), 
-  # - Same approach but without a climatic effect
-  tar_target(fig_magnitudechange_noclim, plot_magnitudechange_noclim(
-    sim_output, simul_list, pca_demo_per_species, 
-    "output/fig/climate_effect_per_variable_noclim.jpg"), format = "file"), 
-  
   # Plots for methods
   # -- Plot the frequency of disturbances along the climatic axis
   tar_target(fig_dist_frequency, plot_dist_frequency(
     simul_list, climate_dist_dflist, "output/fig/methods/dist_freq.jpg"), 
     format = "file"), 
-  # -- Plot pca of functional traits
-  tar_target(fig_pca_demo_traits, plot_traits_pca12(
-    traits_complete, sp.in.sim, "output/fig/methods/pca_traits_demo.jpg"),
-      format = "file"), 
   # -- Plot a mpa of the NFI plots selected
   tar_target(fig_map_NFI, map_NFI_plots(
     NFI_plots_selected, "output/fig/methods/map.jpg"), format = "file"), 
+  # -- Plot the position of species along functional and climatic space
+  tar_target(fig_funclim_species, plot_funclim_species(
+    NFI_data_sub, NFI_plots_selected, traits_compiled, 
+    "output/fig/methods/fig_funclim_species.jpg"), format = "file"), 
+  # -- Plot the map, and climate change on one plot
+  tar_target(fig_map_clim_dist, plot_map_clim_dist(
+    NFI_plots_selected, simul_list, climate_dist_dflist, 
+    "output/fig/methods/fig_map_clim_dist.jpg"), format = "file"),
   
   
   
   
-  # Additional analysis with classification in succession stage
+  # Plot for analyses
   # - Classify plots in succession stage
   tar_target(NFI_succession, classify_succession(NFI_data_sub, NFI_plots_selected)), 
+  # - Plot the effect of climate for each succession stage with BA as abundance
+  tar_target(fig_climeffect_perdqm_BA, plot_magnitudechange_perdqm(
+    sim_output_short, NFI_succession, simul_list, traits_compiled, weight = "BA",
+    "output/fig/analyses/fig_climeffect_BA.jpg"), format = "file"), 
+  # - Plot the effect of climate for each succession stage with N as abundance
+  tar_target(fig_climeffect_perdqm_N, plot_magnitudechange_perdqm(
+    sim_output_short, NFI_succession, simul_list, traits_compiled, weight = "N",
+    "output/fig/analyses/fig_climeffect_N.jpg"), format = "file"), 
+  # - Plot the effect of climate, structure and composition on dissimilarity
+  tar_target(fig_dissimilarity_effect, plot_dissimilarity_effect(
+    regional_pool, sim_output_short, simul_list, NFI_succession, traits_compiled, 
+    NFI_plots_selected, dist_occurence, 
+    "output/fig/analyses/fig_dissimilarity_effect.jpg"), format = "file"), 
+  
+  
+  # Plots for supplementary material
+  # - Plot the effect of climate, structure and composition on dissimilarity
+  tar_target(fig_dissimilarity_BA, plot_dissimilarity(
+    regional_pool, sim_output_short, simul_list, NFI_succession, traits_compiled, 
+    weight = "BA", "output/fig/supplementary/fig_dissimilarity_BA.jpg"), format = "file"), 
+  tar_target(fig_dissimilarity_N, plot_dissimilarity(
+    regional_pool, sim_output_short, simul_list, NFI_succession, traits_compiled, 
+    weight = "N", "output/fig/supplementary/fig_dissimilarity_N.jpg"), format = "file"), 
   # - plot the resulting size distribution per succession and climate
   tar_target(fig_distrib_succession, plot_succession_distrib(
-    NFI_succession, "output/fig/succession/fig_distrib.jpg"), format = "file"),
-  # - Plot the effect of climate for each succession stage
-  tar_target(fig_climeffect_perdqm, plot_magnitudechange_perdqm(
-    sim_output, NFI_succession, simul_list, pca_demo_per_species, 
-    "output/fig/succession/fig_climeffect.jpg"), format = "file") 
+    NFI_succession, "output/fig/supplementary/fig_distrib.jpg"), format = "file")
   
   
 )

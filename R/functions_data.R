@@ -269,28 +269,6 @@ get_I_per_disturbance = function(intensity_file, quantile.ref){
 #' }
 
 
-#' Get coordinate in first pca traits axis per species
-#' @param data_traits dataframe containing trait value per species
-get_pc1_per_species <- function(data_traits, sp.in.sim){
-  
-  # Compile the traits data
-  data_traits.in = data_traits %>%
-    filter(species %in% sp.in.sim) %>%
-    drop_na()
-  
-  # Make the PCA
-  pca <- prcomp((data_traits.in %>% dplyr::select(-species)), 
-                center = T, scale = T)
-  
-  # Extract data for individuals
-  out = data_traits.in
-  out$pca1 = get_pca_ind(pca)[[1]][, 1]
-  
-  # return the output
-  return(out)
-}
-
-
 #' Function to prepare disturbance and climate dataframe for each plot
 #' @param NFI_disturbance data of disturbance probability per plot
 #' @param NFI_climate data of climate per plot
@@ -747,6 +725,7 @@ classify_succession = function(NFI_data_sub, NFI_plots_selected){
   
   
 }
+
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 ## Prepare and run simulations  ----
@@ -1240,21 +1219,230 @@ get_simulations_output = function(simulations){
 }
 
 
+#' Faster function to extract for each timestep species composition
+#' @param simulations simulation data
+get_simulations_output_short = function(simulations){
+  
+  
+  # Loop on all simulations
+  for(ID.simulation in 1:length(simulations)){
+    
+    print(ID.simulation)
+    
+    # Read simulation
+    sim.in = readRDS(simulations[ID.simulation])
+    
+    # Check that the simulation didn't fail
+    if(length(sim.in) > 0){
+      
+      # Check that there was no exponential increase in basal area
+      if(!any(is.na(sim.in$value))){
+        
+        
+        # Extract mean basal area and number of individuals per time and species
+        data.out = sim.in %>%
+          filter(!equil & var %in% c("BAsp", "N")) %>%
+          mutate(ID.simulation = ID.simulation) %>% 
+          dplyr::select(ID.simulation, species, time, var, value) %>%
+          spread(key = "var", value = "value") %>%
+          rename(BA = BAsp)
+        
+        # Addd to final dataframe
+        if(ID.simulation == 1) out = data.out
+        else out = rbind(out, data.out)
+        
+        
+      }
+    }
+    
+  }
+  
+  # Return output
+  return(out)
+  
+}
+
+
+
+
+
+
+
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+## functions to manage traits data  -------------
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+#' Function to make imputation of functional traits from a trait df
+#' @param traits.in input trait dataset
+input_traits = function(traits.in){
+  
+  
+  traits.matrix = as.matrix(traits.in[, -1])
+  rownames(traits.matrix) = traits.in[, 1]
+  
+  # Try imputation by DINEOF
+  test.eof = eofRecon(eof(traits.matrix, recursive = TRUE))
+  
+  # Output dataframe
+  matrix.out = traits.matrix
+  matrix.out[which(is.na(traits.matrix))] = test.eof[which(is.na(traits.matrix))]
+  out = traits.in[, 1] %>% cbind(matrix.out)
+  colnames(out) = colnames(traits.in)
+  out = as.data.frame(out)
+  for(i in 2:dim(out)[2]) out[, i] = as.numeric(out[, i])
+  
+  # Return output
+  return(out)
+}
+
+#' Function to compile functional traits data and make imputation and PCA
+#' @param wood.density_file WD data from Chave et al. 
+#' @param traitsNFI_file traits calculated from NFI data (see Barrere et al. 2023)
+#' @param shade.tolerance_file ST from Niinemets & Valladares 2006
+#' @param TRY_file TRY request used in Barrere et al. 2023
+#' @param sp.in.sim species included in the simulations
+compile_traits = function(wood.density_file, traitsNFI_file, shade.tolerance_file, 
+                          TRY_file, sp.in.sim){
+  
+  # Initilize output list
+  list.out = list()
+  
+  # Wood density (Chave et al. 2008 + Dryad to quote)
+  # - Read file
+  wood.density <- read_xls(wood.density_file, sheet = "Data")
+  # - CHange colnames
+  colnames(wood.density) <- c("n", "family", "species", "wood.density", "region", "reference")
+  # - Extract data for all simulated species
+  wood.density = wood.density %>%
+    mutate(species = gsub("\\ ", "\\_", species), 
+           species = ifelse(species %in% c("Betula_pubescens", "Betula_pendula"), 
+                            "Betula", species)) %>%
+    filter(species %in% sp.in.sim) %>%
+    group_by(species) %>%
+    summarise(wood.density = mean(wood.density, na.rm = TRUE))
+  
+  # Shade tolerance (Niimenets)
+  shade.tolerance <- fread(shade.tolerance_file) %>%
+    mutate(shade.tolerance = as.numeric(gsub("\\,", "\\.", shade.tolerance.mean))) %>%
+    dplyr::select(species, shade.tolerance) %>%
+    mutate(species = gsub("\\ ", "\\_", species), 
+           species = ifelse(species %in% c("Betula_pubescens", "Betula_pendula"), 
+                            "Betula", species)) %>%
+    filter(species %in% sp.in.sim)  %>%
+    drop_na()
+  
+  # NFI traits
+  NFI_traits = fread(traitsNFI_file) %>%
+    mutate(species = gsub("\\ ", "\\_", species), 
+           species = ifelse(species %in% c("Betula_pubescens", "Betula_pendula"), 
+                            "Betula", species)) %>%
+    filter(species %in% sp.in.sim) %>%
+    rename(bark.thickness = bark.thickness_mm)
+  
+  # Leaf thickness from TRY
+  traits.TRY <- fread(TRY_file) %>%
+    filter(TraitID == 46) %>%
+    filter(!is.na(StdValue)) %>%
+    mutate(species = gsub("\\ ", "\\_", AccSpeciesName), 
+           species = ifelse(species %in% c("Betula_pubescens", "Betula_pendula"), 
+                            "Betula", species)) %>%
+    filter(species %in% sp.in.sim)  %>%
+    group_by(species) %>%
+    summarize(leaf.thickness = mean(StdValue, na.rm = TRUE), 
+              n = n()) %>%
+    ungroup() %>% filter(n >= 5) %>%
+    dplyr::select(-n) 
+  
+  
+  # Add to the output list raw traits databases (with NA)
+  # - Create element in the list
+  list.out$traits_raw = list()
+  # - traits related to the growth-survival trade-off
+  list.out$traits_raw$GrSurv = data.frame(species = sp.in.sim) %>%
+    left_join(wood.density, by = "species") %>%
+    left_join((NFI_traits %>% dplyr::select(-bark.thickness)), 
+              by = "species")
+  # - traits related to the shadetolerance drought tolerance trade-off
+  list.out$traits_raw$ShadeDrought = data.frame(species = sp.in.sim) %>%
+    left_join(shade.tolerance, by = "species") %>%
+    left_join((NFI_traits %>% dplyr::select(species, bark.thickness)), 
+              by = "species") %>%
+    left_join(traits.TRY, by = "species") %>%
+    left_join((climate_species %>% filter(N == 2) %>%
+                 dplyr::select(species = sp, optimum = PC1)), by = "species")
+  
+  # Add to the output list inputed traits database
+  # - Crerate element in the list
+  list.out$traits_imputed = list()
+  # - Traits related to the growth survival trade-off
+  list.out$traits_imputed$GrSurv = input_traits(list.out$traits_raw$GrSurv)
+  # - Traits related to the shade - drought tolerance trade-off
+  list.out$traits_imputed$ShadeDrought = input_traits(list.out$traits_raw$ShadeDrought)
+  
+  # Make PCAs based on imputed traits
+  # - Crerate element in the list
+  list.out$pca = list()
+  # - Traits related to the growth survival trade-off
+  list.out$pca$GrSurv = prcomp((list.out$traits_imputed$GrSurv %>% 
+                                  dplyr::select(-species)), 
+                               center = T, scale = T)
+  # - Traits related to the shade - drought tolerance trade-off
+  list.out$pca$ShadeDrought = prcomp((list.out$traits_imputed$ShadeDrought %>% 
+                                        dplyr::select(-species)), 
+                                     center = T, scale = T)
+  
+  # Extract traits coordinates for each pca
+  # - Crerate element in the list
+  list.out$traits_pca_coord = list()
+  # - Traits related to the growth survival trade-off
+  list.out$traits_pca_coord$GrSurv = data.frame(
+    trait = as.character(rownames(get_pca_var(list.out$pca$GrSurv)[[1]])), 
+    pca1 = as.numeric(get_pca_var(list.out$pca$GrSurv)[[1]][, 1]))
+  # - Traits related to the shade - drought tolerance trade-off
+  list.out$traits_pca_coord$ShadeDrought = data.frame(
+    trait = as.character(rownames(get_pca_var(list.out$pca$ShadeDrought)[[1]])), 
+    pca1 = as.numeric(get_pca_var(list.out$pca$ShadeDrought)[[1]][, 1]))
+  
+  # Make a dataframe with the names of each axis
+  list.out$title_axes = data.frame(
+    axis = c("GrSurv", "ShadeDrought"), title = c(
+      paste0("GrSurv Axis (", round(summary(
+        list.out$pca$GrSurv)$importance[2, 1]*100, digits = 2), "%)",
+        "\nHigh growth <--> High survival"), 
+      paste0("ShadeDrought Axis (", round(summary(
+        list.out$pca$ShadeDrought)$importance[2, 1]*100, digits = 2), "%)",
+        "\nHigh shade tol. <--> High drought tol."))
+  )
+  
+  # Data frame with the coordinates of each species along each axis
+  list.out$species_coord = data.frame(species = sp.in.sim) %>%
+    # Add coordinates on the growth survival axis
+    left_join(data.frame(
+      species = as.character(rownames(get_pca_ind(list.out$pca$GrSurv)[[1]])), 
+      GrSurv = as.numeric(get_pca_ind(list.out$pca$GrSurv)[[1]][, 1])), 
+      by = "species") %>%
+    # Add coordinates on the drought-shade axis
+    left_join(data.frame(
+      species = as.character(rownames(get_pca_ind(list.out$pca$ShadeDrought)[[1]])), 
+      ShadeDrought = as.numeric(get_pca_ind(list.out$pca$ShadeDrought)[[1]][, 1])), 
+      by = "species")
+  
+  # Return the output list
+  return(list.out)
+  
+  
+}
+
+
 
 #' Function to extract demographic traits from the model parameters
 #' @param sp.in.sim Species included in the simulations
-get_traits_demo = function(sp.in.sim){
+#' @param new_fit_list New list of parameters (based on the new recruitment fit)
+get_traits_demo = function(sp.in.sim, new_fit_list, coef_ba_reg){
   
   # Load climatic optimum for each species
   data("climate_species")
-  
-  # Initialize list of fits (one element per species)
-  fit.list <- list()
-  
-  # Loop on all species to load and store demographic parameters
-  for(i in 1:length(sp.in.sim)){
-    eval(parse(text=paste0("fit.list$", sp.in.sim[i], " <- fit_", sp.in.sim[i])))
-  }
   
   # Calculate the mean dbh, competition (hetero and conspecific)
   dbh.ref = 250
@@ -1275,8 +1463,15 @@ get_traits_demo = function(sp.in.sim){
     left_join((climate_species %>%
                  filter(N == 2) %>%
                  dplyr::select(species = sp, wai, wai2, 
-                               waib, sgdd, sgdd2, sgddb)), 
+                               waib, sgdd, sgdd2, sgddb, PC1)), 
               by = "species") %>%
+    # Add regional basal area and dispersion kernel
+    left_join(coef_ba_reg, by = "species") %>%
+    mutate(BA.reg = a*exp(-(PC1 - b)^2/c)) %>%
+    left_join(disp_kernel, by = "species") %>%
+    # Calculate fecundity
+    mutate(Fec = log(p30*BATOTSP + (1 - p30)*BA.reg*0.9)) %>%
+    dplyr::select(-p30, -a, -b, -c, -PC1) %>%
     # Add interactions
     mutate(`logsize:sgdd` = logsize*sgdd, `logsize:wai` = logsize*wai, 
            `size:sgdd` = size*sgdd, `size:wai` = size*wai, 
@@ -1296,12 +1491,13 @@ get_traits_demo = function(sp.in.sim){
     sp.i = traits_demo$species[i]
     
     # Give the delay from fit list
-    traits_demo$delay[i] = as.numeric(fit.list[[i]]$info["delay"])
+    traits_demo$delay[i] = as.numeric(new_fit_list[[i]]$info["delay"])
     
     # Demographic parameters for species i
-    param.rec.i = fit.list[[i]]$rec$params_m
-    param.gr.i = fit.list[[i]]$gr$params_m
-    param.sv.i = fit.list[[i]]$sv$params_m
+    param.rec.i = new_fit_list[[i]]$rec$params_m
+    names(param.rec.i)[which(names(param.rec.i) == "logBATOTSP")] = "Fec"
+    param.gr.i = new_fit_list[[i]]$gr$params_m
+    param.sv.i = new_fit_list[[i]]$sv$params_m
     
     # Associated vector of variables
     val.rec.i = as.vector(subset(data_species, species == sp.i)[, names(param.rec.i)])
@@ -1310,7 +1506,7 @@ get_traits_demo = function(sp.in.sim){
     
     # Get the demographic parameters
     traits_demo$recruitment[i] = exp(sum(param.rec.i*val.rec.i))
-    traits_demo$growth[i] = sum(param.gr.i*val.gr.i)
+    traits_demo$growth[i] = exp(sum(param.gr.i*val.gr.i))
     traits_demo$survival[i] = 1 - plogis(sum(param.sv.i*val.sv.i))
     
   }
@@ -1319,34 +1515,6 @@ get_traits_demo = function(sp.in.sim){
   return(traits_demo)
   
 }
-
-#' Get coordinate in first pca traits axis per species
-#' @param data_traits dataframe containing trait value per species
-#' @param sp.in.sim character vector listing species included in simulations
-get_pc12_per_species <- function(data_traits, sp.in.sim){
-  
-  # Compile the traits data
-  data_traits.in = data_traits %>% 
-    mutate(species = ifelse(species == "Betula_sp", "Betula", species)) %>%
-    filter(species %in% sp.in.sim) %>%
-    dplyr::select(-bark.thickness_mm)  %>%
-    rename("wood.density" = "wood.density_g.cm3", "H-D.ratio" = "height.dbh.ratio") %>%
-    drop_na()
-  
-  # Make the PCA
-  pca <- prcomp((data_traits.in %>% dplyr::select(-species)), 
-                center = T, scale = T)
-  
-  # Extract data for individuals
-  out = data.frame(species = data_traits.in$species,
-                   pca1 = get_pca_ind(pca)[[1]][, 1], 
-                   pca2 = get_pca_ind(pca)[[1]][, 2])
-  
-  # return the output
-  return(out)
-}
-
-
 
 
 

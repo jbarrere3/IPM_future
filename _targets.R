@@ -215,13 +215,6 @@ list(
   ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
   # Plots for methods
-  # -- Plot the frequency of disturbances along the climatic axis
-  tar_target(fig_dist_frequency, plot_dist_frequency(
-    simul_list, climate_dist_dflist, "output/fig/methods/dist_freq.jpg"), 
-    format = "file"), 
-  # -- Plot a mpa of the NFI plots selected
-  tar_target(fig_map_NFI, map_NFI_plots(
-    NFI_plots_selected, "output/fig/methods/map.jpg"), format = "file"), 
   # -- Plot the position of species along functional and climatic space
   tar_target(fig_funclim_species, plot_funclim_species(
     NFI_data_sub, NFI_plots_selected, traits_compiled, 
@@ -231,39 +224,32 @@ list(
     NFI_plots_selected, simul_list, climate_dist_dflist, 
     "output/fig/methods/fig_map_clim_dist.jpg"), format = "file"),
   
-  
-  
-  
+ 
   # Plot for analyses
   # - Classify plots in succession stage
   tar_target(NFI_succession, classify_succession(NFI_data_sub, NFI_plots_selected)), 
-  # - Plot the effect of climate for each succession stage with BA as abundance
-  tar_target(fig_climeffect_perdqm_BA, plot_magnitudechange_perdqm(
-    sim_output_short, NFI_succession, simul_list, traits_compiled, weight = "BA",
-    "output/fig/analyses/fig_climeffect_BA.jpg"), format = "file"), 
-  # - Plot the effect of climate for each succession stage with N as abundance
-  tar_target(fig_climeffect_perdqm_N, plot_magnitudechange_perdqm(
-    sim_output_short, NFI_succession, simul_list, traits_compiled, weight = "N",
-    "output/fig/analyses/fig_climeffect_N.jpg"), format = "file"), 
-  # - Plot the effect of climate, structure and composition on dissimilarity
-  tar_target(fig_dissimilarity_effect, plot_dissimilarity_effect(
+  # - Biogeo effect only for abundance as N
+  tar_target(fig_biogeo_effect_N, plot_biogeo_effect_per.metric(
+    sim_output_short, NFI_succession, simul_list, traits_compiled, "N",
+    "output/fig/analyses/fig_biogeo_effect_N.jpg"), format = "file"), 
+  # - Local effect only for abundance as N
+  tar_target(fig_local_N, plot_local_effect_permetric(
     regional_pool, sim_output_short, simul_list, NFI_succession, traits_compiled, 
-    NFI_plots_selected, dist_occurence, 
-    "output/fig/analyses/fig_dissimilarity_effect.jpg"), format = "file"), 
-  
+    NFI_plots_selected, dist_occurence, "N", 
+    "output/fig/analyses/fig_local_effect_N.jpg"), format = "file"), 
   
   # Plots for supplementary material
-  # - Plot the effect of climate, structure and composition on dissimilarity
-  tar_target(fig_dissimilarity_BA, plot_dissimilarity(
-    regional_pool, sim_output_short, simul_list, NFI_succession, traits_compiled, 
-    weight = "BA", "output/fig/supplementary/fig_dissimilarity_BA.jpg"), format = "file"), 
-  tar_target(fig_dissimilarity_N, plot_dissimilarity(
-    regional_pool, sim_output_short, simul_list, NFI_succession, traits_compiled, 
-    weight = "N", "output/fig/supplementary/fig_dissimilarity_N.jpg"), format = "file"), 
   # - plot the resulting size distribution per succession and climate
   tar_target(fig_distrib_succession, plot_succession_distrib(
-    NFI_succession, "output/fig/supplementary/fig_distrib.jpg"), format = "file")
-  
-  
+    NFI_succession, "output/fig/supplementary/fig_distrib.jpg"), format = "file"), 
+  # - Biogeo effect only for abundance as BA
+  tar_target(fig_biogeo_effect_BA, plot_biogeo_effect_per.metric(
+    sim_output_short, NFI_succession, simul_list, traits_compiled, "BA",
+    "output/fig/supplementary/fig_biogeo_effect_BA.jpg"), format = "file"), 
+  # - Local effect only for abundance as BA
+  tar_target(fig_local_BA, plot_local_effect_permetric(
+    regional_pool, sim_output_short, simul_list, NFI_succession, traits_compiled, 
+    NFI_plots_selected, dist_occurence, "BA", 
+    "output/fig/supplementary/fig_local_effect_BA.jpg"), format = "file")
 )
 

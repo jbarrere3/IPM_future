@@ -283,6 +283,7 @@ get_clim_dist_df = function(NFI_disturbance, NFI_climate, I_per_disturbance){
   year.table = data.frame(name = colnames(NFI_disturbance)) %>%
     filter(!(name %in% c("plotcode", "longitude", "latitude"))) %>%
     mutate(year = as.numeric(gsub(".+\\_", "", gsub("\\_mpi.+", "", name)))) %>%
+    filter(year %in% as.numeric(unique(gsub(".+\\_", "", colnames(NFI_climate)[-c(1:3)])))) %>%
     dplyr::select(year) %>%
     distinct() %>%
     arrange(year) %>%
@@ -309,7 +310,7 @@ get_clim_dist_df = function(NFI_disturbance, NFI_climate, I_per_disturbance){
       gather(key = "variable", value = "value", colnames(.)) %>%
       separate(col = "variable", into = c("scenario", "var", "year"), sep = "_") %>%
       mutate(year = as.numeric(year)) %>%
-      filter(year %in% year.table$year & scenario %in% ssp.in & var != "vpd") %>%
+      filter(year %in% year.table$year & var != "vpd") %>%
       left_join(year.table, by = "year") %>%
       dplyr::select(t, scenario, var, value) %>%
       spread(key = "var", value = "value") %>%
@@ -674,11 +675,10 @@ classify_succession = function(NFI_data_sub, NFI_plots_selected){
     summarize(dqm = sqrt(sum(dbh1.weight, na.rm = TRUE)/sum(Nha, na.rm = TRUE))) %>%
     left_join(NFI_plots_selected[, c("plotcode", "climate")], by = "plotcode") %>%
     ungroup() %>% group_by(climate) %>%
-    mutate(dqm033 = quantile(dqm, 0.33), dqm066 = quantile(dqm, 0.66)) %>%
+    mutate(dqm05 = quantile(dqm, 0.5)) %>%
     ungroup() %>%
-    mutate(dqm_class = case_when(dqm < dqm033 ~ "succession1", 
-                                 dqm > dqm066 ~ "succession3", 
-                                 TRUE ~ "succession2")) %>%
+    mutate(dqm_class = case_when(dqm < dqm05 ~ "early-succession", 
+                                 TRUE ~ "late-succession")) %>%
     dplyr::select(plotcode, climate, dqm, dqm_class)
   
   
@@ -734,9 +734,8 @@ classify_succession = function(NFI_data_sub, NFI_plots_selected){
 
 #' Function to extend disturbance coefficients to all species
 #' @param intensity_file posterior of disturbance coefficients from Barrere et al. 2023
-#' @param traits dataframe containing wood density data per species
-#' @param traitsNFI dataframe containing traits calculated from NFI data (bark thickness)
-extend_disturb_coef = function(intensity_file, traits, traitsNFI){
+#' @param traits_compiled LIst of functional traits value
+extend_disturb_coef = function(intensity_file, traits_compiled){
   
   # Get the parameters of the global models
   param = get_param_from_rdata(intensity_file) 
@@ -757,11 +756,13 @@ extend_disturb_coef = function(intensity_file, traits, traitsNFI){
   # Fit a model with coefficients as a function of bark thickness
   # - Prepare data
   data.bt.fit = param %>%
+    mutate(species = gsub("\\ ", "\\_", species)) %>%
     filter(disturbance == "fire") %>%
     ungroup() %>%
     group_by(species)  %>%
     summarise(a0 = mean(a0), b = mean(b), c = mean(c)) %>%
-    left_join(dplyr::select(traitsNFI, "species", "BT" = "bark.thickness_mm"), 
+    left_join(traits_compiled$traits_imputed$ShadeDrought %>%
+                dplyr::select("species", "BT" = "bark.thickness"), 
               by = "species") %>%
     drop_na()
   # - Fit model
@@ -780,7 +781,8 @@ extend_disturb_coef = function(intensity_file, traits, traitsNFI){
     ungroup() %>%
     group_by(species)  %>%
     summarise(a0 = mean(a0), a1 = mean(a1), b = mean(b), c = mean(c)) %>%
-    left_join(dplyr::select(traits, "species", "WD" = "wood.density"), 
+    left_join(traits_compiled$traits_imputed$GrSurv %>%
+                dplyr::select("species", "WD" = "wood.density"), 
               by = "species") %>%
     drop_na()
   # - Fit model
@@ -805,7 +807,8 @@ extend_disturb_coef = function(intensity_file, traits, traitsNFI){
   out = disturb_coef.2 %>%
     # Add missing storm
     rbind((data.frame(disturbance = "storm", species = sp.nostorm) %>%
-             left_join(dplyr::select(traits, "species", "WD" = "wood.density"), 
+             left_join(traits_compiled$traits_imputed$GrSurv %>%
+                         dplyr::select("species", "WD" = "wood.density"), 
                        by = "species") %>%
              cbind(predict(mod.storm, newdata = .)) %>%
              drop_na() %>%
@@ -816,8 +819,8 @@ extend_disturb_coef = function(intensity_file, traits, traitsNFI){
              dplyr::select(-WD))) %>%
     # Add missing fire
     rbind((data.frame(disturbance = "fire", species = sp.nofire, a1 = 0) %>%
-             left_join((traitsNFI %>% mutate(species = gsub("\\ ", "\\_", species)) %>%
-                          dplyr::select("species", "BT" = "bark.thickness_mm")), 
+             left_join(traits_compiled$traits_imputed$ShadeDrought %>%
+                         dplyr::select("species", "BT" = "bark.thickness"), 
                        by = "species") %>%
              cbind(predict(mod.fire, newdata = .)) %>%
              drop_na() %>%
@@ -1006,8 +1009,10 @@ make_simul_list = function(
   expand.grid(plotcode = NFI_plots_selected$plotcode, 
               ssp = ssp.in, 
               dist = c("dist", "nodist")) %>%
+    filter(!(ssp == "ssp126" & dist == "dist")) %>%
     left_join((NFI_plots_selected %>% dplyr::select(plotcode, climate, pca1)), 
               by = "plotcode") %>%
+    arrange(climate, plotcode, ssp, dist) %>%
     mutate(ID.simulation = c(1:dim(.)[1])) %>%
     dplyr::select(ID.simulation, plotcode, pca1, ssp, dist, climate)
   
@@ -1020,10 +1025,13 @@ make_simul_list = function(
 #' @param species_mu vector containing all species mu rds files created
 #' @param climate_dist_dflist list of climate and disturbance df
 #' @param simul_list df listing simulations to perform
+#' @param disp_kernel dispersal kernel for each species
+#' @param use_pool boolean indicating whether the regional pool should be included 
+#'                 in the simulation or not
 #' @param ID.simulation ID in simul_dist of the simulation to perform
 make_simulations = function(
   species_distrib, species_mu, species_list, climate_dist_dflist,
-  regional_pool, simul_list, disp_kernel, ID.simulation){
+  regional_pool, simul_list, disp_kernel, use_pool, ID.simulation){
   
   # Print simulation ID
   print(ID.simulation)
@@ -1086,9 +1094,19 @@ make_simulations = function(
   }
   
   # Make forest
-  forest.in = forest(species = list.sp, harv_rules = c(
-    Pmax = 0.25, dBAmin = 3, freq = 1, alpha = 1), 
-    regional_abundance = reg.pool.in, migration_rate = mig.rate.in)
+  # - With the regional pool
+  if(use_pool){
+    forest.in = forest(species = list.sp, harv_rules = c(
+      Pmax = 0.25, dBAmin = 3, freq = 1, alpha = 1), 
+      regional_abundance = reg.pool.in, migration_rate = mig.rate.in)
+  }
+  # - Without the regional pool
+  if(!use_pool){
+    forest.in = forest(species = list.sp[paste0("mu_", names(distributions.in))], 
+                       harv_rules = c(Pmax = 0.25, dBAmin = 3, freq = 1, alpha = 1), 
+                       migration_rate = mig.rate.in[names(distributions.in)])
+  }
+  
   
   # Different code depending on whether the scenario includes disturbances or not
   if(dist.in == "dist"){
@@ -1096,8 +1114,7 @@ make_simulations = function(
     try(sim.in <- sim_deter_forest(
       forest.in, tlim = max(climate.in$t), climate = climate.in, 
       equil_dist = max(climate.in$t),  equil_time = max(climate.in$t), 
-      verbose = TRUE, correction = "cut", disturbance = disturbance.in), 
-      silent = TRUE)
+      verbose = TRUE, correction = "cut", disturbance = disturbance.in), silent = TRUE)
   } else {
     # Run simulation with a changing climate but no disturbance
     try(sim.in <- sim_deter_forest(
@@ -1108,115 +1125,21 @@ make_simulations = function(
   
   # If the simulation failed, return an empty object
   if(!exists("sim.in")) sim.in = list()
-  
-  # Name of the file to save
-  file.in = paste0("rds/", clim.in, "/simulations/simul", ID.simulation, ".rds")
-  
-  # Save species object in a rdata
-  create_dir_if_needed(file.in)
-  saveRDS(sim.in, file.in)
+  # Otherwise, make final formatting to keep only essential information
+  else sim.in = sim.in %>%
+    filter(!equil & var %in% c("BAsp", "N")) %>%
+    mutate(ID.simulation = ID.simulation) %>% 
+    dplyr::select(ID.simulation, species, time, var, value) %>%
+    spread(key = "var", value = "value") %>%
+    rename(BA = BAsp)
   
   # Return output list
-  return(file.in)
+  return(sim.in)
 }
 
 
 
 
-
-#' Function to extract for each timestep prodictivity, mean dbh and diversity
-#' @param simulations simulation data
-get_simulations_output = function(simulations){
-  
-  
-  # Loop on all simulations
-  for(ID.simulation in 1:length(simulations)){
-    
-    print(ID.simulation)
-    
-    # Read simulation
-    sim.in = readRDS(simulations[ID.simulation])
-    
-    # Check that the simulation didn't fail
-    if(length(sim.in) > 0){
-      
-      # Check that there was no exponential increase in basal area
-      if(!any(is.na(sim.in$value))){
-        
-        
-        
-        # Initialize dataset for productivity
-        data.prod.in = sim.in %>%
-          filter(!equil & var == "BAsp") %>%
-          dplyr::select(species, time, BA = value) %>%
-          rbind((sim.in %>%
-                   filter(!equil & var == "BAsp") %>%
-                   group_by(time) %>% summarize(BA = sum(value)) %>% 
-                   mutate(species = "all") %>% ungroup() %>%
-                   dplyr::select(species, time, BA))) %>%
-          mutate(prod = 0, ID = c(1:dim(.)[1]))
-        
-        # Loop on all time step
-        for(t in 2:max(data.prod.in$time)){
-          # Loop on all species
-          for(s in unique(data.prod.in$species)){
-            id.t = subset(data.prod.in, species == s & time == t)$ID
-            id.t1 = subset(data.prod.in, species == s & time == (t-1))$ID
-            if(!is.na(data.prod.in$BA[id.t])){
-              if(data.prod.in$BA[id.t] > data.prod.in$BA[id.t1]){
-                data.prod.in$prod[id.t] = data.prod.in$BA[id.t] - data.prod.in$BA[id.t1]
-              }
-            }else{data.prod.in$prod[id.t] = NA_real_}
-          }
-        }
-        
-        # Data with structural information
-        data.dbh.in = sim.in %>%
-          filter(var == "n" & !equil) %>%
-          dplyr::select(size, time, species, value) %>%
-          rbind((sim.in %>%
-                   filter(var == "n" & !equil) %>%
-                   group_by(size, time) %>% summarize(value = mean(value)) %>%
-                   ungroup() %>% mutate(species = "all") %>%
-                   dplyr::select(size, time, species, value))) %>%
-          group_by(size, time, species) %>%
-          summarize(ntot = sum(value)) %>%
-          ungroup() %>% group_by(time, species) %>%
-          filter(size > 0) %>%
-          mutate(ntot_size = ntot*size) %>%
-          summarize(dbh.mean = weighted.mean(size, w = ntot), 
-                    dbh.var = weighted.var(size, w = ntot))
-        
-        # Diversity along time
-        data.div.in = sim.in %>%
-          filter(var == "BAsp" & !equil) %>%
-          group_by(time) %>%
-          mutate(p = value/sum(value), 
-                 plnp = p*log(p)) %>%
-          summarise(H = -sum(plnp)) 
-        
-        # Final dataset
-        data.out = data.prod.in %>%
-          left_join(data.dbh.in, by = c("time", "species")) %>%
-          left_join(data.div.in, by = "time") %>%
-          mutate(ID.simulation = ID.simulation) %>%
-          dplyr::select(ID.simulation, time, species, prod, H, BA, 
-                        dbh.mean, dbh.var)
-        
-        # Addd to final dataframe
-        if(ID.simulation == 1) out = data.out
-        else out = rbind(out, data.out)
-        
-        
-      }
-    }
-    
-  }
-  
-  # Return output
-  return(out)
-  
-}
 
 
 #' Faster function to extract for each timestep species composition

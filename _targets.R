@@ -120,26 +120,7 @@ list(
   
   
   
-  ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-  # -- Load and format traits data ---- 
-  ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-  
-  # -- Traits data file
-  tar_target(traits_file, "data/Traits/traits.csv", format = "file"),
-  tar_target(traitsNFI_file, "data/Traits/traitsNFI.csv", format = "file"),
-  tar_target(wood.density_file, "data/Traits/GlobalWoodDensityDatabase.xls", format = "file"),
-  tar_target(shade.tolerance_file, "data/Traits/shade_tolerance_FrenchNFI.csv", format = "file"),
-  tar_target(TRY_file, "data/Traits/TRY_data_request_21092.txt", format = "file"),
-  # -- Read traits data
-  tar_target(traits, fread(traits_file)),
-  tar_target(traitsNFI, fread(traitsNFI_file)),
-  # -- Compile traits from different databases
-  tar_target(traits_compiled, compile_traits(
-    wood.density_file, traitsNFI_file, shade.tolerance_file, TRY_file, sp.in.sim)),
-  # -- Get all species included in the simulations for filtering
-  tar_target(sp.in.sim, gsub("\\ ", "\\_", unique(species_list$species))),
-  
-  
+
   
   
   ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -164,20 +145,35 @@ list(
   tar_target(climate_dist_dflist_ext, extend_disturbance(climate_dist_dflist, 5)),
 
   
+  ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  # -- Load and format traits data ---- 
+  ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
   
+  # -- Traits data file
+  tar_target(traitsNFI_file, "data/Traits/traitsNFI.csv", format = "file"),
+  tar_target(wood.density_file, "data/Traits/GlobalWoodDensityDatabase.xls", format = "file"),
+  tar_target(shade.tolerance_file, "data/Traits/shade_tolerance_FrenchNFI.csv", format = "file"),
+  tar_target(TRY_file, "data/Traits/TRY_data_request_21092.txt", format = "file"),
+  # -- Compile traits from different databases
+  tar_target(traits_compiled, compile_traits(
+    wood.density_file, traitsNFI_file, shade.tolerance_file, TRY_file, sp.in.sim)),
+  # -- Get all species included in the simulations for filtering
+  tar_target(sp.in.sim, gsub("\\ ", "\\_", unique(species_list$species))),
+
+
   
   ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
   # -- Prepare species objects and run simulations ---- 
   ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-  
+   
   # Extend the disturbance coefficients of matreex using traits
   tar_target(disturb_coef_ext, extend_disturb_coef(
-    intensity_file, traits, traitsNFI)),
-  
-  # Build the regional pool of each NFI plot 
+    intensity_file, traits_compiled)),
+   
+  # Build the regional pool of each NFI plot
   tar_target(regional_pool, make_regional_pool(
     NFI_plots_selected, NFI_forest_cover, coef_ba_reg)),
-  
+
   # Get the size distribution of each species in each plot
   tar_target(species_distrib, get_species_distrib(NFI_data_sub)),
   # Get the climatic margins
@@ -199,16 +195,21 @@ list(
   tar_target(simul_list, make_simul_list(NFI_plots_selected)),
   # -- Vector from 1 to number of simulations to make (for branching)
   tar_target(ID.simulation, c(1:dim(simul_list)[1])),
-  # -- Make simulations
-  tar_target(simulations, make_simulations(
+  # -- Make simulations with regional pool
+  tar_target(simulations_pool, make_simulations(
     species_distrib, species_mu, species_list, climate_dist_dflist_ext,
-    regional_pool, simul_list, disp_kernel, ID.simulation), 
-    pattern = map(ID.simulation), iteration = "vector", format = "file"),
+    regional_pool, simul_list, disp_kernel, use_pool = TRUE, ID.simulation),
+    pattern = map(ID.simulation), iteration = "list"),
+  # -- Make simulations without regional pool
+  tar_target(simulations_nopool, make_simulations(
+    species_distrib, species_mu, species_list, climate_dist_dflist_ext,
+    regional_pool, simul_list, disp_kernel, use_pool = FALSE, ID.simulation),
+    pattern = map(ID.simulation), iteration = "list"),
 
   # Extract output of the simulations
-  tar_target(sim_output, get_simulations_output(simulations)),
-  tar_target(sim_output_short, get_simulations_output_short(simulations)),
-  
+  tar_target(sim_output_pool, bind_rows(simulations_pool, .id = NULL)),
+  tar_target(sim_output_nopool, bind_rows(simulations_nopool, .id = NULL)),
+
 
   ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
   # -- Plots ----
@@ -217,39 +218,46 @@ list(
   # Plots for methods
   # -- Plot the position of species along functional and climatic space
   tar_target(fig_funclim_species, plot_funclim_species(
-    NFI_data_sub, NFI_plots_selected, traits_compiled, 
-    "output/fig/methods/fig_funclim_species.jpg"), format = "file"), 
+    NFI_data_sub, NFI_plots_selected, traits_compiled,
+    "output/fig/methods/fig_funclim_species.jpg"), format = "file"),
   # -- Plot the map, and climate change on one plot
   tar_target(fig_map_clim_dist, plot_map_clim_dist(
-    NFI_plots_selected, simul_list, climate_dist_dflist, 
+    NFI_plots_selected, climate_dist_dflist,
     "output/fig/methods/fig_map_clim_dist.jpg"), format = "file"),
-  
- 
+
+
   # Plot for analyses
   # - Classify plots in succession stage
-  tar_target(NFI_succession, classify_succession(NFI_data_sub, NFI_plots_selected)), 
+  tar_target(NFI_succession, classify_succession(NFI_data_sub, NFI_plots_selected)),
   # - Biogeo effect only for abundance as N
   tar_target(fig_biogeo_effect_N, plot_biogeo_effect_per.metric(
-    sim_output_short, NFI_succession, simul_list, traits_compiled, "N",
-    "output/fig/analyses/fig_biogeo_effect_N.jpg"), format = "file"), 
+    sim_output_pool, NFI_succession, simul_list, NFI_data_sub, traits_compiled, "N",
+    "output/fig/analyses/fig_biogeo_effect_N.jpg"), format = "file"),
   # - Local effect only for abundance as N
-  tar_target(fig_local_N, plot_local_effect_permetric(
-    regional_pool, sim_output_short, simul_list, NFI_succession, traits_compiled, 
-    NFI_plots_selected, dist_occurence, "N", 
-    "output/fig/analyses/fig_local_effect_N.jpg"), format = "file"), 
+  tar_target(fig_pool_N, plot_pool_effect(
+    regional_pool, sim_output_pool, sim_output_nopool, simul_list, NFI_data_sub, 
+    traits_compiled, dist_occurence, "N", "output/fig/analyses/fig_pool_N.jpg"), 
+    format = "file"),
+  
   
   # Plots for supplementary material
-  # - plot the resulting size distribution per succession and climate
-  tar_target(fig_distrib_succession, plot_succession_distrib(
-    NFI_succession, "output/fig/supplementary/fig_distrib.jpg"), format = "file"), 
-  # - Biogeo effect only for abundance as BA
-  tar_target(fig_biogeo_effect_BA, plot_biogeo_effect_per.metric(
-    sim_output_short, NFI_succession, simul_list, traits_compiled, "BA",
-    "output/fig/supplementary/fig_biogeo_effect_BA.jpg"), format = "file"), 
-  # - Local effect only for abundance as BA
-  tar_target(fig_local_BA, plot_local_effect_permetric(
-    regional_pool, sim_output_short, simul_list, NFI_succession, traits_compiled, 
-    NFI_plots_selected, dist_occurence, "BA", 
-    "output/fig/supplementary/fig_local_effect_BA.jpg"), format = "file")
+  # - biogeo effect only for abundance as N but without the regional pool
+  tar_target(fig_biogeo_effect_N_nopool, plot_biogeo_effect_per.metric(
+    sim_output_nopool, NFI_succession, simul_list, NFI_data_sub, traits_compiled, "N",
+    "output/fig/supplementary/fig_biogeo_effect_N_nopool.jpg"), format = "file")
+  # 
+  # # Plots for supplementary material
+  # # - plot the resulting size distribution per succession and climate
+  # tar_target(fig_distrib_succession, plot_succession_distrib(
+  #   NFI_succession, "output/fig/supplementary/fig_distrib.jpg"), format = "file"), 
+  # # - Biogeo effect only for abundance as BA
+  # tar_target(fig_biogeo_effect_BA, plot_biogeo_effect_per.metric(
+  #   sim_output_pool, NFI_succession, simul_list, traits_compiled, "BA",
+  #   "output/fig/supplementary/fig_biogeo_effect_BA.jpg"), format = "file"), 
+  # # - Local effect only for abundance as BA
+  # tar_target(fig_local_BA, plot_local_effect_permetric(
+  #   regional_pool, sim_output_pool, simul_list, NFI_succession, traits_compiled, 
+  #   NFI_plots_selected, dist_occurence, "BA", 
+  #   "output/fig/supplementary/fig_local_effect_BA.jpg"), format = "file")
 )
 

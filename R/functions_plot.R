@@ -261,33 +261,46 @@ plot_map_clim_dist = function(NFI_plots_selected, climate_dist_dflist, file.out)
               sgdd.sd = sd(sgdd, na.rm = TRUE), 
               wai.mean = mean(wai, na.rm = TRUE), 
               wai.sd = sd(wai, na.rm = TRUE), 
-              freq.fire = mean(freq.fire, na.rm = TRUE), 
-              freq.storm = mean(freq.storm, na.rm = TRUE)) %>%
+              freq.fire.mean = mean(freq.fire, na.rm = TRUE), 
+              freq.fire.sd = sd(freq.fire, na.rm = TRUE)/sqrt(n()), 
+              freq.storm.mean = mean(freq.storm, na.rm = TRUE), 
+              freq.storm.sd = sd(freq.storm, na.rm = TRUE)/sqrt(n())) %>%
     # Calculate upper and lower boundaries for frequency and climate
     mutate(sgdd_upr = sgdd.mean + sgdd.sd, sgdd_lwr = sgdd.mean - sgdd.sd, 
            wai_upr = wai.mean + wai.sd, wai_lwr = wai.mean - wai.sd, 
-           freq_upr = max(freq.fire, freq.storm)) %>%
+           freq.fire_upr = freq.fire.mean + freq.fire.sd, 
+           freq.storm_upr = freq.storm.mean + freq.storm.sd, 
+           freq_upr = max(freq.fire_upr, freq.storm_upr)) %>%
     ungroup() %>% 
     mutate(sgdd.upr = max(sgdd_upr), sgdd.lwr = min(sgdd_lwr), 
            wai.upr = max(wai_upr), wai.lwr = min(wai_lwr), 
            freq.lwr = 0, freq.upr = max(freq_upr)) %>%
-    ungroup() %>% dplyr::select(-sgdd_upr, -sgdd_lwr, -wai_upr, -wai_lwr, -freq_upr)
+    ungroup() %>% dplyr::select(-sgdd_upr, -sgdd_lwr, -wai_upr, -wai_lwr, -freq_upr, 
+                                - freq.fire_upr, - freq.storm_upr) %>%
+    # Reduce the size of rectangles for the most extreme climates
+    mutate(Hot = ifelse(climate == "clim1", pca1.mean, Hot), 
+           Cold = ifelse(climate == "clim10", pca1.mean, Cold))
   
   
   # Plot the change in disturbance frequency
   plot.dist = data.out %>%
-    gather(key = "disturbance", value = "frequency", "freq.fire", "freq.storm") %>%
-    mutate(disturbance = gsub(".+\\.", "", disturbance)) %>%
-    ggplot(aes(x = pca1.mean, y = frequency, color = disturbance, linetype = ssp)) + 
-    geom_rect(data = mutate(data.out, disturbance = NA_character_, frequency = NA_real_), 
+    gather(key = "metric", value = "value", "freq.fire.mean", "freq.storm.mean", 
+           "freq.fire.sd", "freq.storm.sd") %>%
+    mutate(metric = gsub("freq\\.", "", metric)) %>%
+    separate(col = "metric", into = c("disturbance", "variable"), "\\.") %>%
+    spread(key = "variable", value = "value") %>%
+    ggplot(aes(x = pca1.mean, y = mean, color = disturbance, linetype = ssp)) + 
+    geom_rect(data = mutate(data.out, disturbance = NA_character_, mean = NA_real_), 
               aes(fill = climate, xmin = Hot, xmax = Cold, ymin = freq.lwr, 
                   ymax = freq.upr), color = NA, inherit.aes = TRUE, 
               alpha = 0.2, show.legend = FALSE) +
     scale_fill_manual(values = color.vec) + 
+    geom_ribbon(aes(ymin = mean-sd, ymax = mean+sd, alpha = ssp), fill = "grey") + 
     geom_line() + 
     facet_wrap(~ period) + 
     scale_color_manual(values = c('fire' = "red", 'storm' = "blue")) + 
     scale_linetype_manual(values = c('ssp126' = "dashed", 'ssp585' = "solid")) +
+    scale_alpha_manual(values = c('ssp126' = 0.35, 'ssp585' = 0.65)) +
     xlab("Position along the climate axis\n(Hot-dry to cold-wet)") + 
     ylab("Disturbance frequency") +
     theme(panel.background = element_rect(fill = "white", color = "black"), 
@@ -355,7 +368,6 @@ plot_map_clim_dist = function(NFI_plots_selected, climate_dist_dflist, file.out)
   
   # Return file saved
   return(file.out)
-  
 }
 
 

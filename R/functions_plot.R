@@ -383,7 +383,6 @@ plot_pool_effect = function(
     regional_pool, sim_output_pool, sim_output_nopool, simul_list, NFI_data_sub, 
     traits_compiled, dist_occurence, metric.ref, file.out){
   
-  
   # Create output directory if needed
   create_dir_if_needed(file.out)
   
@@ -563,6 +562,31 @@ plot_pool_effect = function(
               se = sd(diff_pool, na.rm = TRUE)/sqrt(n()), 
               n = n()) %>%
     filter(n >= 10) %>%
+    group_by(var, R.init) %>%
+    mutate(mean.max = max(mean), lwr.data = min(mean - se), upr.data = max(mean+se)) %>%
+    # Add lower and upper value of the predictions
+    left_join((data.diffpool.fit %>% mutate(R.init = round(R.init*10, 0)/10) %>% 
+                 filter(R.init %in% c(1:5)) %>% group_by(var, R.init) %>% 
+                 summarize(lwr.fit = min(lwr), upr.fit = max(upr))), 
+              by = c("var", "R.init")) %>%
+    # Calculate the range per variable plotted
+    ungroup() %>% group_by(var) %>%
+    mutate(min = min(min(lwr.data), min(lwr.fit)), 
+           max = max(max(upr.data), max(upr.fit)), 
+           range = max - min) %>%
+    ungroup() %>% dplyr::select(-max, -min) %>%
+    # Add significance
+    left_join((data.diffpool.fit %>% mutate(R.init = round(R.init*10, 0)/10) %>% 
+                 filter(R.init %in% c(1:5)) %>% group_by(var, R.init, dist) %>% 
+                 summarize(lwr = mean(lwr), upr = mean(upr)) %>%
+                 mutate(signif = ifelse(lwr > 0 | upr < 0, "*", "")) %>% 
+                 dplyr::select(-lwr, -upr)), by = c("var", "R.init", "dist")) %>%
+    # Attribute label position depending on which is upper and lower
+    group_by(var, R.init) %>%
+    mutate(label.pos = ifelse(mean == mean.max, max(upr.fit, upr.data) + 0.15*range, 
+                              min(lwr.fit, lwr.data) - 0.15*range), 
+           label.n = ifelse(mean == mean.max, paste0(" \n", signif, "\n (", n, ") "), 
+                            paste0(" (", n, ") \n", signif, "\n "))) %>%
     left_join(data.var, by = "var")  %>%
     mutate(label = factor(label, levels = data.var$label)) %>%
     ggplot(aes(x = R.init, fill = dist, color = dist)) + 
@@ -572,7 +596,8 @@ plot_pool_effect = function(
     geom_errorbar(aes(y = mean, ymin = mean - se, ymax = mean + se), 
                   position = position_dodge(0.1), color = "black", width = 0.1) + 
     geom_point(aes(y = mean), position = position_dodge(0.1), color = "black", shape = 21) + 
-    facet_wrap( ~ label, scale = "free") + 
+    geom_text(aes(y = label.pos, label = label.n), size = 2.5, lineheight = 0.8) +
+    facet_wrap( ~ label, scale = "free", nrow = 1) + 
     geom_hline(yintercept = 0, linetype = "dashed") + 
     scale_color_manual(values = c(`disturbed` = "#2A6F97", `undisturbed` = "#61A5C2")) + 
     scale_fill_manual(values = c(`disturbed` = "#2A6F97", `undisturbed` = "#61A5C2")) + 
@@ -585,12 +610,11 @@ plot_pool_effect = function(
   
   
   # Save the plot
-  ggsave(file.out, plot.diffpool, width = 18, 
-         height = 12 , units = "cm", dpi = 600, bg = "white")
+  ggsave(file.out, plot.diffpool, width = 30, 
+         height = 7 , units = "cm", dpi = 600, bg = "white")
   
   # Return the file saved 
   return(file.out)
-  
 }
 
 

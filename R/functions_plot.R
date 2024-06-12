@@ -609,7 +609,7 @@ plot_pool_effect = function(
                   position = position_dodge(0.1), color = "black", width = 0.1) + 
     geom_point(aes(y = mean), position = position_dodge(0.1), color = "black", shape = 21) + 
     geom_text(aes(y = label.pos, label = label.n), size = 2.5, lineheight = 0.8) +
-    facet_wrap( ~ label, scale = "free", nrow = 1) + 
+    facet_wrap( ~ label, scale = "free", nrow = 2) + 
     geom_hline(yintercept = 0, linetype = "dashed") + 
     scale_color_manual(values = c(`disturbed` = "#2A6F97", `undisturbed` = "#61A5C2")) + 
     scale_fill_manual(values = c(`disturbed` = "#2A6F97", `undisturbed` = "#61A5C2")) + 
@@ -622,8 +622,8 @@ plot_pool_effect = function(
   
   
   # Save the plot
-  ggsave(file.out, plot.diffpool, width = 30, 
-         height = 7 , units = "cm", dpi = 600, bg = "white")
+  ggsave(file.out, plot.diffpool, width = 17, 
+         height = 13 , units = "cm", dpi = 600, bg = "white")
   
   # Return the file saved 
   return(file.out)

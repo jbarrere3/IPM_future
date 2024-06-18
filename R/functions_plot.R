@@ -1073,5 +1073,79 @@ plot_succession_distrib = function(NFI_succession, file.out){
 
 
 
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+## Export of tables ----
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+
+#' Function to a table of the functional and climate position of each species
+#' @param NFI_data_sub Subset of NFI data for the plots selected
+#' @param NFI_plots_selected NFI plots that were selected for the analyses
+#' @param traits_compiled list compiling traits data, pca and functional position
+#' @param file.out Name of the file to save, including path
+export_table_funclim_species = function(NFI_data_sub, NFI_plots_selected, 
+                                        traits_compiled, file.out){
+  
+  
+  # Create output directory if needed
+  create_dir_if_needed(file.out)
+  
+  # Compile species level data
+  data = NFI_data_sub %>%
+    dplyr::select(plotcode, species) %>%
+    distinct() %>%
+    left_join(NFI_plots_selected[, c("plotcode", "pca1")], by = "plotcode") %>%
+    group_by(species) %>%
+    summarize(Cold = quantile(pca1, 0.975, na.rm = TRUE), 
+              Optimum = mean(pca1, na.rm = TRUE), 
+              Hot = quantile(pca1, 0.025, na.rm = TRUE)) %>%
+    # Add coordinates on functional axes
+    left_join((traits_compiled$species_coord %>%
+                 mutate(species = gsub("\\_", "\\ ", species)) %>%
+                 mutate(species = ifelse(species == "Betula", "Betula sp", species))), 
+              by = "species") %>%
+    # Add percentage of basal area
+    left_join((NFI_data_sub %>% group_by(species) %>% summarize(ba = sum(ba_ha)) %>%
+                 ungroup() %>% mutate(percent = round(ba/sum(ba)*100, digits = 1)) %>%
+                 dplyr::select(-ba)), by = "species") %>%
+    # Round each variable
+    mutate(Cold = round(Cold, digits = 2), Optimum = round(Optimum, digits = 2), 
+           Hot = round(Hot, digits = 2), GrSurv = round(GrSurv, digits = 2), 
+           ShadeDrought = round(ShadeDrought, digits = 2)) %>%
+    # Arrange by climatic optimum
+    arrange(desc(Optimum))
+  
+  # Prepare the conversion in a table
+  table = data.frame(
+    col1 = c("", "", data$species), 
+    col2 = c("Share in ", "basal area", paste0(data$percent, " %")), 
+    col3 = c("Cold", "margin", data$Cold), 
+    col4 = c("Climatic", "optimum", data$Optimum), 
+    col5 = c("Hot", "margin", data$Hot), 
+    col6 = c("GrSurv", "axis", data$GrSurv), 
+    col7 = c("DroughtShade", "axis", data$ShadeDrought)
+  )
+  
+  
+  # Save tex file
+  print(xtable(table, type = "latex", label = "table_species",
+               caption = paste0("Share in basal area within the NFI dataset, ", 
+                                "climatic niche (optimum, cold and hot margin ", 
+                                "along the sgdd-wai pca axis) and trait value ", 
+                                "along the growth-survival and shade - drought ", 
+                                "tolerance trait axes for the 26 species included", 
+                                " in the simulations"), 
+               align = rep("c", dim(table)[2]+1)), 
+        include.rownames=FALSE, hline.after = c(0, 2, dim(table)[1]), 
+        include.colnames = FALSE, caption.placement = "top", size = "\\small",
+        file = file.out)
+  
+  # Return the file saved
+  return(file.out)
+  
+}
+
+
 
 

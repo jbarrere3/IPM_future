@@ -25,7 +25,7 @@ packages.in <- c("dplyr", "ggplot2", "matreex", "tidyr", "readxl", "cowplot",
                  "data.table", "factoextra", "terra", "ggmcmc", "R2jags", 
                  "betareg", "car", "scales", "MASS", "broom.mixed", "lme4", 
                  "modi", "ggridges", "purrr", "checkmate", "FD", "sf", 
-                 "rnaturalearth", "sinkr", "egg")
+                 "rnaturalearth", "sinkr", "egg", "xtable")
 for(i in 1:length(packages.in)){
   if(!(packages.in[i] %in% rownames(installed.packages()))){
     install.packages(packages.in[i])
@@ -244,8 +244,9 @@ list(
   # - biogeo effect only for abundance as N but without the regional pool
   tar_target(fig_biogeo_effect_N_nopool, plot_biogeo_effect_per.metric(
     sim_output_nopool, NFI_succession, simul_list, NFI_data_sub, traits_compiled, "N",
-    "output/fig/supplementary/fig_biogeo_effect_N_nopool.jpg"), format = "file")
-  # 
+    "output/fig/supplementary/fig_biogeo_effect_N_nopool.jpg"), format = "file"),
+  
+   
   # # Plots for supplementary material
   # # - plot the resulting size distribution per succession and climate
   # tar_target(fig_distrib_succession, plot_succession_distrib(
@@ -259,5 +260,14 @@ list(
   #   regional_pool, sim_output_pool, simul_list, NFI_succession, traits_compiled, 
   #   NFI_plots_selected, dist_occurence, "BA", 
   #   "output/fig/supplementary/fig_local_effect_BA.jpg"), format = "file")
+  
+  
+  ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  # -- Plots ----
+  ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  
+  tar_target(table_funclim_species, export_table_funclim_species(
+    NFI_data_sub, NFI_plots_selected, traits_compiled, 
+    "output/tables/table_species.tex"), format = "file")
 )
 

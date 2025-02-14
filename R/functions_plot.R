@@ -722,8 +722,9 @@ plot_biogeo_effect_per.metric = function(
     var = c("H", "FD", "cwm1", "cwm2"), 
     title = c("Species_diversity", "Functional_diversity", 
               traits_compiled$title_axes$axis), 
-    label = c("Species diversity\n(Shannon index)", "Functional diversity",
-              traits_compiled$title_axes$title)
+    label = c("Species diversity", "Functional diversity",
+              "CWM on Growth <-> Survival axis", 
+              "CWM on Shade tol. <-> Drought tol. axis")
   )
   
   # Join all data together
@@ -959,20 +960,26 @@ plot_biogeo_effect_per.metric = function(
   for(k in 1:length(plotlist.out)){
     
     # Get the ylab
-    if(data.var$var[k] == "FD") ylab.k = paste0(
-      "Change in \n", gsub("Ax.+\\)", "Axis", data.var$label[k]))
-    else ylab.k = paste0("Change in ", gsub("Ax.+\\)", "Axis", data.var$label[k]))
+    ylab.k = paste0(
+      "\u03c6(", data.var$var[k], ") : climate change effect on\n", data.var$label[k])
     
     # Subset data for variable k
     data.k = subset(data.map, variable == data.var$var[k])
+    data.points.k = subset(data.points.i, var == data.var$var[k]) %>%
+      filter(metric == metric.ref)
     
     # Vector of points for color
     quant.0 = -min(data.k$var.change, na.rm = TRUE)/diff(range(data.k$var.change, na.rm = TRUE))
+    point.20 = as.numeric(quantile(filter(data.k, var.change < 0)$var.change, 0.4, na.rm = TRUE))
     point.25 = as.numeric(quantile(filter(data.k, var.change < 0)$var.change, 0.5, na.rm = TRUE))
+    point.40 = as.numeric(quantile(filter(data.k, var.change < 0)$var.change, 0.8, na.rm = TRUE))
+    point.60 = as.numeric(quantile(filter(data.k, var.change > 0)$var.change, 0.4, na.rm = TRUE))
     point.75 = as.numeric(quantile(filter(data.k, var.change > 0)$var.change, 0.5, na.rm = TRUE))
+    point.80 = as.numeric(quantile(filter(data.k, var.change > 0)$var.change, 0.8, na.rm = TRUE))
     quant.25 = point.25-min(data.k$var.change, na.rm = TRUE)/diff(range(data.k$var.change, na.rm = TRUE))
     quant.75 = point.75-min(data.k$var.change, na.rm = TRUE)/diff(range(data.k$var.change, na.rm = TRUE))
     vec.quant.k = c(0, quant.25, quant.0, quant.75, 1)
+    
     
     # Map plot
     plot.map.k = ne_countries(scale = "medium", returnclass = "sf") %>%
@@ -982,18 +989,20 @@ plot_biogeo_effect_per.metric = function(
               aes(color = var.change), size = 1, shape = 20) +
       scale_color_gradientn(
         colors = c('#1D3461', '#1368AA', 'white', '#F29479', '#CB1B16'),
-        values = vec.quant.k) +
+        values = vec.quant.k, 
+        name = paste0("\u03c6(", data.var$var[k], ")"), 
+        guide = "colourbar") +
       coord_sf(xlim = c(-10, 32), ylim = c(36, 71)) + 
       # guides(color = guide_legend(override.aes = list(size = 0.5))) +
       theme(panel.background = element_rect(color = 'black', fill = 'white'), 
             panel.grid = element_blank(), 
-            legend.title = element_blank(), 
             legend.key = element_blank(), 
-            legend.position = c(0.25, 0.9), 
-            legend.key.width = unit(0.4, "cm"), 
-            legend.key.height = unit(0.15, "cm"), 
-            legend.direction = "horizontal", 
-            legend.text = element_text(size = 6)) 
+            legend.position = c(0.25, 0.85), 
+            legend.key.width = unit(0.25, "cm"), 
+            legend.key.height = unit(0.2, "cm"), 
+            legend.text = element_text(size = 6), 
+            # legend.direction = "horizontal", 
+            legend.title = element_text(hjust = 1, face = "bold")) 
     
     
     # Baseline plot
@@ -1005,23 +1014,25 @@ plot_biogeo_effect_per.metric = function(
         c("early", "late"), "-succession"))) %>%
       ggplot(aes(x = pca1, y = fit, group = scenario, 
                  color = scenario, fill = scenario, ymin = lwr, ymax = upr)) + 
+      # geom_hline(yintercept = point.75, linetype = "dashed", color = '#CB1B16', linewidth = 0.4) +
+      geom_hline(yintercept = point.60, linetype = "dashed", color = '#F29479', linewidth = 0.4) +
+      geom_hline(yintercept = point.40, linetype = "dashed", color = '#1368AA', linewidth = 0.4) +
+      # geom_hline(yintercept = point.25, linetype = "dashed", color = '#1D3461', linewidth = 0.4) +
       geom_hline(yintercept = 0, linetype = "dashed") +
-      geom_errorbar(data = (subset(data.points.i, var == data.var$var[k]) %>%
-                              filter(metric == metric.ref)), color = "black", 
+      geom_errorbar(data = data.points.k, color = "black", 
                     aes(x = x.pos), inherit.aes = TRUE, alpha = 0.5, width = 0.1) +
-      geom_point(data = (subset(data.points.i, var == data.var$var[k]) %>%
-                           filter(metric == metric.ref)), color = "black",
+      geom_point(data = data.points.k, color = "black",
                  aes(x = x.pos), inherit.aes = TRUE, shape = 21) + 
       geom_line() + 
       geom_ribbon(alpha = 0.3, color = NA) + 
-      xlab("Position along the climate axis\n(Hot-dry to cold-wet)") + 
+      xlab("Position along the climate axis\n(Hot-dry to cold-wet)") +
       ylab(ylab.k) +
       scale_color_manual(values = c('Disturbance only' = "#001219", 
-                                    'Climate change only' = "#CA6702", 
-                                    'Disturbance and climate change' = "#9B2226")) +
+                                    'Climate change only' = "#B5E48C", 
+                                    'Disturbance and climate change' = "#52B69A")) +
       scale_fill_manual(values = c('Disturbance only' = "#005F73", 
-                                   'Climate change only' = "#EE9B00", 
-                                   'Disturbance and climate change' = "#AE2012")) +
+                                   'Climate change only' = "#D9ED92", 
+                                   'Disturbance and climate change' = "#76C893")) +
       facet_wrap( ~ s, ncol = 1) + 
       theme(panel.background = element_rect(color = "black", fill = "white"), 
             panel.grid = element_blank(), 

@@ -396,7 +396,7 @@ plot_pool_effect = function(
     traits_compiled, dist_occurence, metric.ref, file.out){
   
   # Create output directory if needed
-  create_dir_if_needed(file.out)
+  for(f in 1:length(file.out)) create_dir_if_needed(file.out[[f]])
   
   # Merge simulation output with or without regional pool
   sim_output = bind_rows(list(with_pool = sim_output_pool, 
@@ -528,10 +528,13 @@ plot_pool_effect = function(
   # -- List of newdata
   newdata.list = vector(mode = "list", length = length(var.vec))
   names(newdata.list) = var.vec
+  # -- List of residual plots
+  resid.plotlist = vector(mode = "list", length = length(var.vec))
+  names(resid.plotlist) = var.vec
   # -- Loop on all variables to test
   for(i in 1:length(var.vec)){
     # Data to fit model i
-    data.i = subset(data.diffpool, variable == var.vec[i])
+    data.i = subset(data.diffpool, variable == var.vec[i]) %>% drop_na()
     # Fit model i
     mod.list[[i]] = lm(diff_pool ~ R.init*dist + R.init2*dist, data = data.i)
     # Initialize newdata for model i
@@ -560,7 +563,22 @@ plot_pool_effect = function(
       dplyr::select(-diff_pool) %>%
       # Add predictions not in logit format
       mutate(fit = pred, lwr = lwr, upr = upr)
+    # Make plot of residuals
+    resid.plotlist[[i]] = data.frame(residuals = residuals(mod.list[[i]]), 
+                                     fitted = fitted(mod.list[[i]]), 
+                                     obs = data.i$diff_pool) %>%
+      ggplot(aes(x = fitted, y = obs)) + 
+      geom_point(alpha = 0.2) + 
+      geom_smooth(method = "loess", color = "red") + 
+      geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "blue") + 
+      ggtitle(var.vec[i]) + 
+      theme(plot.title = element_text(hjust = 0.5))
+    
   }
+  
+  # assemble the final plot of residuals
+  plot.resid.out = plot_grid(plotlist = resid.plotlist, nrow = 2, scale = 0.9)
+  
   # Format predictions
   data.diffpool.fit = bind_rows(newdata.list, .id = "var") %>%
     left_join(data.var, by = "var")  %>%
@@ -621,12 +639,14 @@ plot_pool_effect = function(
           strip.background = element_blank())
   
   
-  # Save the plot
-  ggsave(file.out, plot.diffpool, width = 17, 
-         height = 13 , units = "cm", dpi = 600, bg = "white")
+  # Save the plots
+  ggsave(file.out$fig, plot.diffpool, width = 17, height = 13 , 
+         units = "cm", dpi = 600, bg = "white")
+  ggsave(file.out$resid, plot.resid.out, width = 17, height = 13 , 
+         units = "cm", dpi = 600, bg = "white")
   
   # Return the file saved 
-  return(file.out)
+  return(unlist(file.out))
 }
 
 
@@ -646,7 +666,7 @@ plot_biogeo_effect_per.metric = function(
     metric.ref, file.out){
   
   # Create output directory if needed
-  create_dir_if_needed(file.out)
+  for(f in 1:length(file.out)) create_dir_if_needed(file.out[[f]])
   
   # Calculate functional diversity
   data.FD = sim_output_short %>%
@@ -737,6 +757,9 @@ plot_biogeo_effect_per.metric = function(
     left_join((NFI_data_sub[, c("plotcode", "longitude", "latitude")] %>% distinct), 
               by = "plotcode") %>%
     st_as_sf(coords = c("longitude", "latitude"), crs = 4326, agr = "constant")
+  
+  # Initialize list of residual plots
+  resid.plotlist = list()
   
   # Loop on all succession stage
   for(i in 1:length(unique(data$dqm_class))){
@@ -833,6 +856,27 @@ plot_biogeo_effect_per.metric = function(
           }
         }
         
+        # Make residuals plot
+        plot.resid = data.frame(residuals = residuals(mod), fitted = fitted(mod), 
+                                obs = data.ijm$var.change) %>%
+          ggplot(aes(x = fitted, y = obs)) + 
+          geom_point(alpha = 0.2) + 
+          geom_smooth(method = "loess", color = "red") + 
+          geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "blue") + 
+          ggtitle(paste(data.var$var[j], succ.i, sep = " - ")) + 
+          theme(plot.title = element_text(hjust = 0.5))
+        
+        # Add residual plot to the residual plot list
+        if(metric.m == metric.ref) eval(parse(text = paste0(
+          "resid.plotlist$", data.var$var[j], "_", gsub("\\-", "", succ.i), 
+          " = plot.resid")))
+        
+        # Compile all statistical effects in a table
+        # tab.ijm = as.data.frame(car::Anova(mod)) %>%
+        #   mutate(effect = rownames(.), var = data.var$var[j], 
+        #          dqm_class = succ.i, metric = metric.m) %>%
+        #   dplyr::select(`var`, `dqm_class`, `metric`, `effect`, `Chisq`, 
+        #                 `p` = `Pr(>Chisq)`)
         
         # Make predictions based on fixed effects
         # -- Extract fixed effects
@@ -886,9 +930,11 @@ plot_biogeo_effect_per.metric = function(
         if(j == 1 & i == 1 & m == 1){
           data.fit.i = newdata
           data.points.i = data.points.ijm
+          # tab.i = tab.ijm
         }else{
           data.fit.i = rbind(data.fit.i, newdata)
           data.points.i = rbind(data.points.i, data.points.ijm)
+          # tab.i = rbind(tab.i, tab.ijm)
         }
         
         
@@ -900,6 +946,10 @@ plot_biogeo_effect_per.metric = function(
     
     
   }
+  
+  # assemble the final plot of residuals
+  plot.resid.out = plot_grid(plotlist = resid.plotlist, nrow = 2, scale = 0.9)
+  
   
   # Initialize the output plotlist
   plotlist.out = vector(mode = "list", length = dim(data.var)[1])
@@ -999,10 +1049,11 @@ plot_biogeo_effect_per.metric = function(
   ) 
   
   # -- Save the plots
-  ggsave(file.out, plot.out, width = 35, height = 20 , units = "cm", dpi = 600, bg = "white")
+  ggsave(file.out$fig, plot.out, width = 35, height = 20 , units = "cm", dpi = 600, bg = "white")
+  ggsave(file.out$resid, plot.resid.out, width = 29, height = 13 , units = "cm", dpi = 600, bg = "white")
   
   # Return the files saved
-  return(file.out)
+  return(unlist(file.out))
   
 }
 
@@ -1056,13 +1107,14 @@ plot_succession_distrib = function(NFI_succession, file.out){
     mutate(climate = factor(climate, levels = paste0(
       "clim", c(1:length(unique(data.plot$climate)))))) %>%
     ggplot(aes(x = dbh.simulated)) + 
-    geom_histogram(aes(fill = climate), color = "black", show.legend = FALSE) +
-    scale_fill_manual(values = colorRampPalette(c("orange", "blue"))(10)) +
+    geom_histogram(aes(fill = climate), color = NA, show.legend = FALSE) +
+    scale_fill_manual(values = colorRampPalette(c("#FFBF69", "#C5D86D", "#AEB8FE"))(10)) +
     facet_grid(dqm_class ~ climate) + 
-    theme_bw()
+    theme_bw() + 
+    xlab("Diameter at breast height (mm)")
   
   # Export the plot
-  ggsave(file.out, plot.out, width = 25, height = 10, units = "cm", 
+  ggsave(file.out, plot.out, width = 22, height = 12, units = "cm", 
          dpi = 600, bg = "white")
   
   # Return the file saved
@@ -1070,8 +1122,191 @@ plot_succession_distrib = function(NFI_succession, file.out){
   
 }
 
+#' Function to plot predictions of disturbance coefficients from traits
+#' @param intensity_file posterior of disturbance coefficients from Barrere et al. 2023
+#' @param traits_compiled LIst of functional traits value
+#' @param file.out Name of the file to save, including path
+plot_disturb_coef = function(intensity_file, traits_compiled, file.out){
+  
+  # Create output directory if needed
+  create_dir_if_needed(file.out)
+  
+  
+  # Get the parameters of the global models
+  param = get_param_from_rdata(intensity_file) 
+  
+  # Extract the parameters for Other broadleaf and other conifer
+  param.other = param %>%
+    filter(disturbance %in% c("storm", "fire")) %>%
+    filter(species %in% c("Other broadleaf", "Other conifer")) %>%
+    group_by(disturbance, species) %>%
+    summarize(a0 = mean(a0), a1 = mean(a1), b = mean(b), c = mean(c),
+              dbh.intercept = mean(dbh.intercept),
+              dbh.slope = mean(dbh.slope),
+              logratio.intercept = mean(logratio.intercept),
+              logratio.slope = mean(logratio.slope))
+  
+  
+  
+  # Fit a model with coefficients as a function of bark thickness
+  # - Prepare data
+  data.bt.fit = param %>%
+    mutate(species = gsub("\\ ", "\\_", species)) %>%
+    filter(disturbance == "fire") %>%
+    ungroup() %>%
+    group_by(species)  %>%
+    summarise(a0 = mean(a0), b = mean(b), c = mean(c)) %>%
+    left_join(traits_compiled$traits_imputed$ShadeDrought %>%
+                dplyr::select("species", "BT" = "bark.thickness"), 
+              by = "species") %>%
+    drop_na()
+  # - Fit model
+  mod.fire = lm(cbind(a0, b, c) ~ BT, data = data.bt.fit)
+  # - Scale parameters
+  scale.fire = param %>% ungroup() %>%
+    filter(disturbance == "fire") %>%
+    dplyr::select(logratio.intercept, logratio.slope, dbh.intercept, dbh.slope) %>%
+    distinct()
+  
+  # Fit a model with coefficients as a function of bark thickness
+  # - Prepare data
+  data.wd.fit.storm = param %>%
+    mutate(species = gsub("\\ ", "\\_", species)) %>%
+    filter(disturbance == "storm") %>%
+    ungroup() %>%
+    group_by(species)  %>%
+    summarise(a0 = mean(a0), a1 = mean(a1), b = mean(b), c = mean(c)) %>%
+    left_join(traits_compiled$traits_imputed$GrSurv %>%
+                dplyr::select("species", "WD" = "wood.density"), 
+              by = "species") %>%
+    drop_na()
+  # - Fit model
+  mod.storm = lm(cbind(a0, a1, b, c) ~ WD, data = data.wd.fit.storm)
+  # - Scale parameters
+  scale.storm = param %>% ungroup() %>%
+    filter(disturbance == "storm") %>%
+    dplyr::select(logratio.intercept, logratio.slope, dbh.intercept, dbh.slope) %>%
+    distinct()
+  
+  
+  # Prepare coefficients data to label plots with equation
+  # - for fire
+  data.coef.fire = coefficients(mod.fire) %>% as.data.frame() %>% 
+    mutate(param = c("int", "slope")) %>% 
+    gather(key = "parameter", value = "value", "a0", "b", "c") %>% 
+    mutate(dist = "fire", value = round(value, digits = 3)) %>% 
+    spread(key = "param", value = "value") %>% 
+    mutate(label = paste0(parameter, "\ny = ", int, " + ", slope, "*x")) %>% 
+    dplyr::select(-int, -slope)
+  # - For storm
+  data.coef.storm = coefficients(mod.storm) %>% as.data.frame() %>% 
+    mutate(param = c("int", "slope")) %>% 
+    gather(key = "parameter", value = "value", "a0", "a1", "b", "c") %>% 
+    mutate(dist = "storm", value = round(value, digits = 3)) %>% 
+    spread(key = "param", value = "value") %>% 
+    mutate(label = paste0(parameter, "\ny = ", int, " + ", slope, "*x")) %>% 
+    dplyr::select(-int, -slope)
+  
+  # Prepare data for plotting (with data and preditions)
+  data = rbind((data.wd.fit.storm[, c("species", "WD")] %>%
+                  mutate(dist = "storm") %>% 
+                  cbind(predict(mod.storm, newdata = .)) %>%
+                  rename(trait = WD) %>%
+                  gather(key = "parameter", value = "fit", "a0", "a1", "b", "c")), 
+               (data.bt.fit[, c("species", "BT")] %>%
+                  mutate(dist = "fire") %>% 
+                  cbind(predict(mod.fire, newdata = .)) %>%
+                  rename(trait = BT) %>%
+                  gather(key = "parameter", value = "fit", "a0", "b", "c"))) %>%
+    left_join((bind_rows(list(storm = data.wd.fit.storm[, c("species", "a0", "a1", "b", "c")], 
+                              fire = data.bt.fit[, c("species", "a0", "b", "c")]), 
+                         .id = "dist") %>%
+                 gather(key = "parameter", value = "value", "a0", "a1", "b", "c") %>%
+                 drop_na()), 
+              by = c("species", "dist", "parameter")) %>%
+    left_join((rbind(data.coef.fire, data.coef.storm)), 
+              by = c("dist", "parameter"))
+  
+  # Plot the results
+  # - Plot the data and fit for storm
+  plot.storm = data %>%
+    filter(dist == "storm") %>% 
+    ggplot(aes(x = trait)) + 
+    geom_point(aes(y = value), shape = 21, color = "black", fill = "blue") + 
+    geom_line(aes(y = fit), color = "blue") + 
+    facet_wrap(~ label, nrow = 1, scales = "free") + 
+    xlab("Wood density") + ylab("Parameter of storm\nsensitivity") + 
+    theme_bw()
+  # - Plot the data and fit for fire
+  plot.fire = data %>%
+    filter(dist == "fire") %>% 
+    ggplot(aes(x = trait)) + 
+    geom_point(aes(y = value), shape = 21, color = "black", fill = "red") + 
+    geom_line(aes(y = fit), color = "red") + 
+    facet_wrap(~ label, nrow = 1, scales = "free") + 
+    xlab("Bark thickness") + ylab("Parameter of fire\nsensitivity") + 
+    theme_bw()
+  # Assemble the two plots
+  plot.out = plot_grid(plot.storm, plot.fire, ncol = 1, align = "v", 
+                       labels = c("(a)", "(b)"), scale = 0.9)
+  
+  # Save the plot
+  ggsave(file.out, plot.out, width = 22, height = 13 , units = "cm", 
+         dpi = 600, bg = "white")
+  
+  
+  # Return file saved
+  return(file.out)
+  
+}
 
 
+
+#' Plot the distribution of species richness per climate
+#' @param NFI_plots_selected plot level information on the NFI plots selected
+#' @param file.out Name of the file to save, including path
+plot_richness_distrib = function(NFI_plots_selected, file.out){
+  
+  # Create output directory if necessary
+  create_dir_if_needed(file.out)
+  
+  # Initialize the data with information on richness distribution per climate
+  data.clim = NFI_plots_selected %>% 
+    dplyr::select(climate, lambda) %>% 
+    distinct() %>%
+    mutate(climate = factor(climate, levels = paste0("clim", c(1:dim(.)[1]))))
+  
+  # Loop on all climate
+  for(i in 1:dim(data.clim)[1]){
+    data.i = data.frame(climate = data.clim$climate[i], 
+                        richness = rpois(1000, data.clim$lambda[i]))
+    if(i == 1) data = data.i
+    else data = rbind(data, data.i)
+  }
+  
+  # Vector of color for plotting
+  color.vec = colorRampPalette(c("#FFBF69", "#C5D86D", "#AEB8FE"))(
+    length(unique(NFI_plots_selected$climate)))
+  names(color.vec) = paste0("clim", c(1:length(color.vec)))
+  
+  # Make the plot
+  plot.out = data %>%
+    mutate(climate = factor(climate, levels = paste0("clim", c(1:dim(.)[1])))) %>%
+    ggplot(aes(x = richness, fill = climate)) + 
+    geom_histogram(color = "black", binwidth = 1, show.legend = FALSE) + 
+    facet_wrap(~ climate, nrow = 2) + 
+    scale_fill_manual(values = color.vec) + 
+    theme_bw()
+  
+  # Save the plot
+  ggsave(file.out, plot.out, width = 22, height = 12 , units = "cm", 
+         dpi = 600, bg = "white")
+  
+  
+  # Return file saved
+  return(file.out)
+  
+}
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 ## Export of tables ----

@@ -212,7 +212,7 @@ list(
 
 
   ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-  # -- Plots ----
+  # -- Export plots ----
   ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
   # Plots for methods
@@ -232,38 +232,36 @@ list(
   # - Biogeo effect only for abundance as N
   tar_target(fig_biogeo_effect_N, plot_biogeo_effect_per.metric(
     sim_output_pool, NFI_succession, simul_list, NFI_data_sub, traits_compiled, "N",
-    "output/fig/analyses/fig_biogeo_effect_N.jpg"), format = "file"),
+    list(fig = "output/fig/analyses/fig_biogeo_effect_N.jpg", 
+         resid = "output/fig/supplementary/fig_residuals_biogeo.jpg")), format = "file"),
   # - Local effect only for abundance as N
   tar_target(fig_pool_N, plot_pool_effect(
     regional_pool, sim_output_pool, sim_output_nopool, simul_list, NFI_data_sub, 
-    traits_compiled, dist_occurence, "N", "output/fig/analyses/fig_pool_N.jpg"), 
-    format = "file"),
+    traits_compiled, dist_occurence, "N", 
+    list(fig = "output/fig/analyses/fig_pool_N.jpg", 
+         resid = "output/fig/supplementary/fig_residuals_pool.jpg")), format = "file"),
   
   
   # Plots for supplementary material
   # - biogeo effect only for abundance as N but without the regional pool
   tar_target(fig_biogeo_effect_N_nopool, plot_biogeo_effect_per.metric(
     sim_output_nopool, NFI_succession, simul_list, NFI_data_sub, traits_compiled, "N",
-    "output/fig/supplementary/fig_biogeo_effect_N_nopool.jpg"), format = "file"),
-  
-   
-  # # Plots for supplementary material
-  # # - plot the resulting size distribution per succession and climate
-  # tar_target(fig_distrib_succession, plot_succession_distrib(
-  #   NFI_succession, "output/fig/supplementary/fig_distrib.jpg"), format = "file"), 
-  # # - Biogeo effect only for abundance as BA
-  # tar_target(fig_biogeo_effect_BA, plot_biogeo_effect_per.metric(
-  #   sim_output_pool, NFI_succession, simul_list, traits_compiled, "BA",
-  #   "output/fig/supplementary/fig_biogeo_effect_BA.jpg"), format = "file"), 
-  # # - Local effect only for abundance as BA
-  # tar_target(fig_local_BA, plot_local_effect_permetric(
-  #   regional_pool, sim_output_pool, simul_list, NFI_succession, traits_compiled, 
-  #   NFI_plots_selected, dist_occurence, "BA", 
-  #   "output/fig/supplementary/fig_local_effect_BA.jpg"), format = "file")
+    list(fig = "output/fig/supplementary/fig_biogeo_effect_N_nopool.jpg", 
+         resid = "output/fig/supplementary/fig_residuals_biogeo_nopool.jpg")), format = "file"),
+  # - plot the resulting size distribution per succession and climate
+  tar_target(fig_distrib_succession, plot_succession_distrib(
+    NFI_succession, "output/fig/supplementary/fig_distrib.jpg"), format = "file"),
+  # - Plot the prediction of disturbance coefficients from functional traits
+  tar_target(fig_disturb_coef, plot_disturb_coef(
+    intensity_file, traits_compiled, "output/fig/supplementary/fig_coef.jpg"), 
+    format = "file"),
+  # - Plot the distribution of species richness in each climate
+  tar_target(fig_richness_distrib, plot_richness_distrib(
+    NFI_plots_selected, "output/fig/supplementary/fig_richness.jpg"), format = "file"),
   
   
   ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-  # -- Plots ----
+  # -- Export tables ----
   ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
   
   tar_target(table_funclim_species, export_table_funclim_species(

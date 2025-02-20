@@ -456,9 +456,9 @@ plot_pool_effect = function(
     var = c("H", "FD", "cwm1", "cwm2"), 
     title = c("Species_diversity", "Functional_diversity", 
               traits_compiled$title_axes$axis), 
-    label = c("Species diversity\n(Shannon index)", "Functional diversity",
-              traits_compiled$title_axes$title)) %>%
-    mutate(label = gsub("\\(.+\\)", "", label))
+    label = c("Species diversity", "Functional diversity",
+              "CWM on Growth <-> Survival axis", 
+              "CWM on Shade tol. <-> Drought tol. axis"))
   
   # Join all data together
   data = data.sp %>%
@@ -516,9 +516,10 @@ plot_pool_effect = function(
     left_join(sp.plot_data, by = "plotcode") %>%
     mutate(R.init2 = log(R.init)) %>%
     left_join((dist_occurence %>% mutate(dist = ifelse(
-      storm.bin == 1 | fire.bin == 1, "disturbed", "undisturbed")) %>%
+      storm.bin == 1 | fire.bin == 1, "yes", "no")) %>%
         dplyr::select(-fire.bin, -storm.bin)), by = "plotcode") %>%
-    mutate(dist = factor(dist, levels = c("disturbed", "undisturbed")))
+    mutate(dist = factor(dist, levels = c("yes", "no")))
+  
   # Make stat analysis
   # -- Initialize stat vector
   var.vec = unique(data.diffpool$variable)
@@ -629,18 +630,24 @@ plot_pool_effect = function(
     geom_text(aes(y = label.pos, label = label.n), size = 2.5, lineheight = 0.8) +
     facet_wrap( ~ label, scale = "free", nrow = 2) + 
     geom_hline(yintercept = 0, linetype = "dashed") + 
-    scale_color_manual(values = c(`disturbed` = "#2A6F97", `undisturbed` = "#61A5C2")) + 
-    scale_fill_manual(values = c(`disturbed` = "#2A6F97", `undisturbed` = "#61A5C2")) + 
+    scale_color_manual(values = c(`yes` = "#2A6F97", `no` = "#61A5C2")) + 
+    scale_fill_manual(values = c(`yes` = "#2A6F97", `no` = "#61A5C2")) + 
+    guides(fill = guide_legend(title = "Occurence of a \ndisturbance during\nthe simulation"), 
+           color = guide_legend(title = "Occurence of a \ndisturbance during\nthe simulation")) +
     xlab("Initial species richness") + 
-    ylab("Effect of the regional pool\non composition shift") +
+    ylab(expression(varphi["RP"] - varphi[bar("RP")])) +
     theme(panel.background = element_rect(color = "black", fill = "white"), 
           panel.grid = element_blank(), 
-          legend.title = element_blank(), 
-          strip.background = element_blank())
+          strip.background = element_blank(), 
+          strip.text = element_text(size = 12), 
+          axis.title.y = element_text(size = 20),
+          axis.title.x = element_text(size = 16),
+          legend.text = element_text(size = 13),
+          legend.title = element_text(size = 13))
   
   
   # Save the plots
-  ggsave(file.out$fig, plot.diffpool, width = 17, height = 13 , 
+  ggsave(file.out$fig, plot.diffpool, width = 23, height = 13 , 
          units = "cm", dpi = 600, bg = "white")
   ggsave(file.out$resid, plot.resid.out, width = 17, height = 13 , 
          units = "cm", dpi = 600, bg = "white")
@@ -1038,24 +1045,26 @@ plot_biogeo_effect_per.metric = function(
             panel.grid = element_blank(), 
             legend.key = element_blank(), 
             strip.background = element_blank(), 
-            strip.text = element_text(size = 12))
+            strip.text = element_text(size = 13), 
+            axis.title.y = element_text(size = 14))
     
     # Add different legend depending on the position
     if(k == 1){
       # Extract legend first
       plot.legend = get_legend(plot.base.k + theme(
         legend.position = "bottom", legend.title = element_blank(),
-        legend.text = element_text(size = 16)))
+        legend.text = element_text(size = 17)))
     }
     
     # Final plot 
     plotlist.out[[k]] = plot_grid(plot.base.k + theme(legend.position = "none"), 
-                                  plot.map.k, ncol = 1, align = "v")
+                                  plot.map.k, nrow = 1, align = "h")
   }
   # Plot predictions of the model
   plot.out = plot_grid(
     plot.legend, 
-    plot_grid(plotlist = plotlist.out, nrow = 1, align = "hv", scale = 0.95), 
+    plot_grid(plotlist = plotlist.out, nrow = 2, align = "hv", scale = 0.9, 
+              labels = c("(a)", "(b)", "(c)", "(d)")), 
     ncol = 1, rel_heights = c(0.03, 1)
   ) 
   

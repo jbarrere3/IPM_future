@@ -22,7 +22,7 @@ library(targets)
 lapply(grep("R$", list.files("R"), value = TRUE), function(x) source(file.path("R", x)))
 # install if needed and load packages
 packages.in <- c("dplyr", "ggplot2", "matreex", "tidyr", "readxl", "cowplot",
-                 "data.table", "factoextra", "terra", "ggmcmc", "R2jags", 
+                 "data.table", "factoextra", "terra", "ggmcmc", "mcmcr", 
                  "betareg", "car", "scales", "MASS", "broom.mixed", "lme4", 
                  "modi", "ggridges", "purrr", "checkmate", "FD", "sf", 
                  "rnaturalearth", "sinkr", "egg", "xtable")

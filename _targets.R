@@ -32,10 +32,11 @@ for(i in 1:length(packages.in)){
   }
 }  
 # Targets options
-options(tidyverse.quiet = TRUE, clustermq.scheduler = "multiprocess")
+options(tidyverse.quiet = TRUE, clustermq.scheduler = "multiprocess", 
+       future.globals.maxSize= 1048576000)
 tar_option_set(packages = packages.in,
                memory = "transient")
-future::plan(future::multisession, workers = 8)
+future::plan(future::multisession, workers = 16)
 set.seed(2)
 
 

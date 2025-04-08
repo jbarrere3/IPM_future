@@ -25,7 +25,8 @@ packages.in <- c("dplyr", "ggplot2", "matreex", "tidyr", "readxl", "cowplot",
                  "data.table", "factoextra", "terra", "ggmcmc", "R2jags", 
                  "betareg", "car", "scales", "MASS", "broom.mixed", "lme4", 
                  "modi", "ggridges", "purrr", "checkmate", "FD", "sf", 
-                 "rnaturalearth", "rnaturalearthdata", "sinkr", "egg", "xtable")
+                 "rnaturalearth", "rnaturalearthdata", "sinkr", "egg", "xtable", 
+                 "spData", "ggnewscale")
 for(i in 1:length(packages.in)){
   if(!(packages.in[i] %in% rownames(installed.packages()))){
     install.packages(packages.in[i])

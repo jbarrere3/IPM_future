@@ -963,6 +963,13 @@ plot_biogeo_effect_per.metric = function(
   plotlist.out = vector(mode = "list", length = dim(data.var)[1])
   names(plotlist.out) = data.var$var
   
+  # Initialize the grid for plotting
+  world_6933 <- st_transform(world, 4326) %>%
+    st_make_grid(n = c(300, 300), what = 'polygons', square = FALSE,
+                 flat_topped = TRUE) %>%
+    st_as_sf() %>%
+    mutate(hex = floor(as.numeric(rownames(.))))
+  
   # Loop on all variables to make the plot
   for(k in 1:length(plotlist.out)){
     
@@ -973,7 +980,11 @@ plot_biogeo_effect_per.metric = function(
     # Subset data for variable k
     data.k = subset(data.map, variable == data.var$var[k])
     data.points.k = subset(data.points.i, var == data.var$var[k]) %>%
-      filter(metric == metric.ref)
+      filter(metric == metric.ref) %>% 
+      mutate(
+        signif = case_when(lwr > 0 ~ "positive", 
+                           upr < 0 ~ "negative", 
+                           TRUE ~ "non-signif"))
     
     # Vector of points for color
     quant.0 = -min(data.k$var.change, na.rm = TRUE)/diff(range(data.k$var.change, na.rm = TRUE))
@@ -987,20 +998,40 @@ plot_biogeo_effect_per.metric = function(
     quant.75 = point.75-min(data.k$var.change, na.rm = TRUE)/diff(range(data.k$var.change, na.rm = TRUE))
     vec.quant.k = c(0, quant.25, quant.0, quant.75, 1)
     
+    # Average variable k across each hexagon
+    data.map_k = subset(data.map, variable == data.var$var[k]) %>%
+      st_join(world_6933, join = st_within) %>%
+      st_drop_geometry() %>%
+      group_by(hex) %>%
+      summarize(var.change = mean(var.change, na.rm = TRUE), 
+                n = n()) %>%
+      filter(n > 6)
+    
+    # Add value of variable k to the grid. 
+    data_plot_k = world_6933 %>%
+      filter(hex %in% data.map_k$hex) %>%
+      left_join(data.map_k, by = "hex")
+    
+    
     
     # Map plot
-    plot.map.k = ne_countries(scale = "medium", returnclass = "sf") %>%
-      ggplot(aes(geometry = geometry)) +
-      geom_sf(fill = "#343A40", color = "gray", show.legend = F, size = 0.2) + 
-      geom_sf(data = subset(data.map, variable == data.var$var[k]), 
-              aes(color = var.change), size = 1, shape = 20) +
-      scale_color_gradientn(
-        colors = c('#1D3461', '#1368AA', 'white', '#F29479', '#CB1B16'),
-        values = vec.quant.k, 
+    plot.map.k = ggplot() +
+      geom_sf(data = ne_countries(scale = "medium", returnclass = "sf"), 
+              aes(geometry = geometry),
+              fill = "#343A40", color = "gray", show.legend = F, size = 0.2) +  
+      geom_sf(data = data_plot_k, 
+              aes(fill = var.change)) +
+      scale_fill_gradient2(
+        low = '#1368AA', mid = 'white', high = '#CB1B16', midpoint = 0,
+        #values = vec.quant.k, 
         name = paste0("\u03c6(", data.var$var[k], ")"), 
         guide = "colourbar") +
+      # scale_fill_gradientn(
+      #   colors = c('#1D3461', '#1368AA', 'white', '#F29479', '#CB1B16'),
+      #   #values = vec.quant.k, 
+      #   name = paste0("\u03c6(", data.var$var[k], ")"), 
+      #   guide = "colourbar") +
       coord_sf(xlim = c(-10, 32), ylim = c(36, 71)) + 
-      # guides(color = guide_legend(override.aes = list(size = 0.5))) +
       theme(panel.background = element_rect(color = 'black', fill = 'white'), 
             panel.grid = element_blank(), 
             legend.key = element_blank(), 
@@ -1008,7 +1039,6 @@ plot_biogeo_effect_per.metric = function(
             legend.key.width = unit(0.25, "cm"), 
             legend.key.height = unit(0.2, "cm"), 
             legend.text = element_text(size = 6), 
-            # legend.direction = "horizontal", 
             legend.title = element_text(hjust = 1, face = "bold")) 
     
     
@@ -1020,26 +1050,24 @@ plot_biogeo_effect_per.metric = function(
       mutate(s = factor(dqm_class, levels = paste0(
         c("early", "late"), "-succession"))) %>%
       ggplot(aes(x = pca1, y = fit, group = scenario, 
-                 color = scenario, fill = scenario, ymin = lwr, ymax = upr)) + 
-      # geom_hline(yintercept = point.75, linetype = "dashed", color = '#CB1B16', linewidth = 0.4) +
-      geom_hline(yintercept = point.60, linetype = "dashed", color = '#F29479', linewidth = 0.4) +
-      geom_hline(yintercept = point.40, linetype = "dashed", color = '#1368AA', linewidth = 0.4) +
-      # geom_hline(yintercept = point.25, linetype = "dashed", color = '#1D3461', linewidth = 0.4) +
+                 fill = scenario, ymin = lwr, ymax = upr)) + 
       geom_hline(yintercept = 0, linetype = "dashed") +
-      geom_errorbar(data = data.points.k, color = "black", 
-                    aes(x = x.pos), inherit.aes = TRUE, alpha = 0.5, width = 0.1) +
-      geom_point(data = data.points.k, color = "black",
-                 aes(x = x.pos), inherit.aes = TRUE, shape = 21) + 
-      geom_line() + 
+      geom_errorbar(data = data.points.k, aes(x = x.pos, color = signif), 
+                    inherit.aes = TRUE, alpha = 0.5, width = 0.1) +
+      geom_point(data = (data.points.k), aes(x = x.pos, color = signif), 
+                 inherit.aes = TRUE, shape = 21) + 
+      scale_color_manual(values = c("#1368AA",  "grey", "#CB1B16")) +
+      scale_fill_manual(values = c('Disturbance only' = "#005F73", 
+                                   'Climate change only' = "#D9ED92", 
+                                   'Disturbance and climate change' = "#76C893")) +
+      new_scale_colour() +
+      geom_line(aes(color = scenario)) + 
       geom_ribbon(alpha = 0.3, color = NA) + 
       xlab("Position along the climate axis\n(Hot-dry to cold-wet)") +
       ylab(ylab.k) +
       scale_color_manual(values = c('Disturbance only' = "#001219", 
                                     'Climate change only' = "#B5E48C", 
                                     'Disturbance and climate change' = "#52B69A")) +
-      scale_fill_manual(values = c('Disturbance only' = "#005F73", 
-                                   'Climate change only' = "#D9ED92", 
-                                   'Disturbance and climate change' = "#76C893")) +
       facet_wrap( ~ s, ncol = 1) + 
       theme(panel.background = element_rect(color = "black", fill = "white"), 
             panel.grid = element_blank(), 
@@ -1049,7 +1077,7 @@ plot_biogeo_effect_per.metric = function(
             axis.title.y = element_text(size = 14))
     
     # Add different legend depending on the position
-    if(k == 1){
+    if(k == 3){
       # Extract legend first
       plot.legend = get_legend(plot.base.k + theme(
         legend.position = "bottom", legend.title = element_blank(),

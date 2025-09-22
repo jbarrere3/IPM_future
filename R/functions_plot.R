@@ -672,6 +672,9 @@ plot_biogeo_effect_per.metric = function(
     sim_output_short, NFI_succession, simul_list, NFI_data_sub, traits_compiled, 
     metric.ref, file.out){
   
+  # Bug fix since sf update
+  sf::sf_use_s2(FALSE)
+  
   # Create output directory if needed
   for(f in 1:length(file.out)) create_dir_if_needed(file.out[[f]])
   

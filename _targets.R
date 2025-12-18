@@ -26,7 +26,7 @@ packages.in <- c("dplyr", "ggplot2", "matreex", "tidyr", "readxl", "cowplot",
                  "betareg", "car", "scales", "MASS", "broom.mixed", "lme4", 
                  "modi", "ggridges", "purrr", "checkmate", "FD", "sf", 
                  "rnaturalearth", "rnaturalearthdata", "sinkr", "egg", "xtable", 
-                 "spData", "ggnewscale")
+                 "spData", "ggnewscale", "lmerTest", "ggh4x")
 for(i in 1:length(packages.in)){
   if(!(packages.in[i] %in% rownames(installed.packages()))){
     install.packages(packages.in[i])
@@ -239,6 +239,16 @@ list(
   tar_target(fig_map_phi_BA_fixed, map_phi(
     NFI_data_sub, phi_per_scenario, metric.ref = "BA", phi.ref = "fixed", 
     "output/fig/new/map_phi_BA_fixed.jpg"), format = "file"),
+  
+  # Plot the biogeographic effect for each metric - phi combination
+  tar_target(fig_biogeo_BAfixed, plot_biogeo_effect(
+    phi_per_scenario, "BA", "fixed", "output/fig/new/biogeo/BAfixed"), format = "file"),
+  tar_target(fig_biogeo_BArate, plot_biogeo_effect(
+    phi_per_scenario, "BA", "rate", "output/fig/new/biogeo/BArate"), format = "file"),
+  tar_target(fig_biogeo_Nfixed, plot_biogeo_effect(
+    phi_per_scenario, "N", "fixed", "output/fig/new/biogeo/Nfixed"), format = "file"),
+  tar_target(fig_biogeo_Nrate, plot_biogeo_effect(
+    phi_per_scenario, "N", "rate", "output/fig/new/biogeo/Nrate"), format = "file"),
   
   ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
   # -- Export plots ----

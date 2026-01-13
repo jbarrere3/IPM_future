@@ -2243,7 +2243,7 @@ plot_biogeo_effect = function(phi_per_scenario, metric.ref, phi.ref, dir.out){
     phi_per_scenario = phi_per_scenario %>%
       mutate(phi.final = phi.rate.percent*10)
     # Ajust the label
-    phi.label = "\u03c6 (% of range\nobserved per decade)"
+    phi.label = "\u03c6: climate change effect on species composition\n(% of range observed per decade)"
   }
   # - If phi is epressed as an absolute change
   if(phi.ref == "fixed"){
@@ -2251,7 +2251,7 @@ plot_biogeo_effect = function(phi_per_scenario, metric.ref, phi.ref, dir.out){
     phi_per_scenario = phi_per_scenario %>%
       rename(phi.final = phi.percent)
     # Ajust the label
-    phi.label = "\u03c6 (% of range\nobserved)"
+    phi.label = "\u03c6: climate change effect on species composition\n(% of range observed)"
   }
   
   # Add the quadratic term of climate and remove NA's
@@ -2433,6 +2433,8 @@ plot_biogeo_effect = function(phi_per_scenario, metric.ref, phi.ref, dir.out){
     # Sum the variance explained by pca1 and pca1sq
     group_by(var, label) %>%
     summarize(prop.cumul = sum(prop.var, na.rm = TRUE)) %>%
+    ungroup() %>%
+    mutate(label = factor(label, levels = data.var$label)) %>%
     # Make plot
     ggplot(aes(x = var, y = prop.cumul, fill = prop.cumul)) + 
     geom_bar(stat = "identity", color = "black") +
@@ -2450,18 +2452,18 @@ plot_biogeo_effect = function(phi_per_scenario, metric.ref, phi.ref, dir.out){
   
   # Assemble plots
   plot.out = plot_grid(
-    plot_grid((ggplot() + theme_void()), plot.predict, nrow = 1, rel_widths = c(0.12, 1)), 
+    plot_grid((ggplot() + theme_void()), plot.predict, nrow = 1, rel_widths = c(0.095, 1)), 
     (ggplot() + theme_void()), 
     plot_grid(plot.variance, (ggplot() + theme_void()), nrow = 1, rel_widths = c(1, 0.17)), 
     ncol = 1, rel_heights = c(1, 0.1, 0.4), labels = c("(a)", "", "(b)")) 
   
   # - Name plots
-  file.predict = paste0(dir.out, "/predict_phi.jpg")
-  file.resid = paste0(dir.out, "/fig_residuals_biogeo.jpg")
+  file.predict = paste0(dir.out, "/predict_phi.pdf")
+  file.resid = paste0(dir.out, "/fig_residuals_biogeo.pdf")
   
   # -- Save the plots
-  ggsave(file.predict, plot.out, width = 35, height = 20 , units = "cm", dpi = 600, bg = "white")
-  ggsave(file.resid, plot.resid.out, width = 29, height = 20 , units = "cm", dpi = 600, bg = "white")
+  ggsave(file.predict, plot.out, width = 35, height = 20 , units = "cm", bg = "white")
+  ggsave(file.resid, plot.resid.out, width = 29, height = 20 , units = "cm", bg = "white")
   
   # Return the files saved
   return(c(file.predict, file.resid))

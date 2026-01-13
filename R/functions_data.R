@@ -2110,6 +2110,539 @@ getmeandistrib_chronoseq <- function(species_distrib_chronoseq,
 
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+## Functions to explore alternative analyses for revision --------
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+#' Function to compile the results of a set of simulation
+#' @param sim_output Output of the simulations
+#' @param traits_compiled Trait value per species
+#' @param simul_list Information on plotcodes and modalities per simulation
+#' @param NFI_succession Initial successional stage per simulation
+format_sim_output = function(sim_output, traits_compiled, simul_list, NFI_succession){
+  
+  # Calculate functional diversity
+  data.FD = sim_output %>%
+    gather(key = "metric", value = "weight", "N", "BA") %>%
+    # Only focus on the second half of the simulations
+    filter(time >= 70) %>%
+    # Add traits data
+    left_join(traits_compiled$species_coord, by = "species") %>%
+    # Gather by functional axis
+    gather(key = "axis", value = "trait_value", names(traits_compiled[[1]])) %>%
+    # Calculate cwm for each time step and each simulation
+    group_by(ID.simulation, time, metric, axis) %>%
+    mutate(cwm = weighted.mean(trait_value, w = weight)) %>%
+    ungroup() %>%
+    # Calculate square distance of species to centroid along each axis
+    mutate(zsq_per_axis = (trait_value - cwm)^2) %>%
+    # Calculate the distance of each species to the centroid
+    group_by(ID.simulation, time, species, metric, weight) %>%
+    summarize(z = sqrt(sum(zsq_per_axis))) %>% ungroup() %>%
+    # Calculate functional dispersion
+    group_by(ID.simulation, metric, time) %>%
+    summarize(FD = weighted.mean(z, w = weight))
+  
+  
+  # Extract simulation output on forest composition
+  out = sim_output %>%
+    gather(key = "metric", value = "weight", "N", "BA") %>%
+    # Only focus on the second half of the simulations
+    filter(time >= 70) %>%
+    # Add traits data
+    left_join(traits_compiled$species_coord, by = "species") %>%
+    # Calculate composition metrics
+    group_by(ID.simulation, metric, time) %>%
+    mutate(p = weight/sum(weight), 
+           plnp = p*log(p)) %>%
+    summarise(H = -sum(plnp), 
+              traits.pca1.mean = weighted.mean(GrSurv, w = weight), 
+              traits.pca2.mean = weighted.mean(ShadeDrought, w = weight)) %>%
+    # Add functional diversity
+    left_join((data.FD %>% mutate(ID.simulation = as.integer(ID.simulation),
+                                  time = as.integer(time))),
+              by = c("ID.simulation", "time", "metric")) %>%
+    # Keep essential variables
+    ungroup() %>% 
+    dplyr::select(ID.simulation, time, metric, H, FD, 
+                  cwm1 = traits.pca1.mean, cwm2 = traits.pca2.mean) %>%
+    drop_na() %>%
+    left_join(simul_list, by = "ID.simulation") %>%
+    left_join(NFI_succession[, c("plotcode", "dqm_class")], by = "plotcode") %>%
+    dplyr::select(ID.simulation, plotcode, metric, time, climate, dqm_class, ssp, 
+                  dist, pca1, H, cwm1, cwm2, FD) %>%
+    gather(key = "variable", value = "value", "H", "FD", "cwm1", "cwm2") %>%
+    drop_na()
+  
+  
+  
+  # Return output
+  return(out)
+  
+} 
+
+
+#' Function to compile the simulation results and calculate phi depending on scenarios 
+#' @param data_pool Results of simulations with regional pool
+#' @param data_nopool Results of simulations without regional pool
+get_phi_per_scenario = function(data_pool, data_nopool){
+  
+  # Calculate the range of each composition variable per climate
+  data_range = data_pool %>% 
+    filter(time == 70 & ssp == "ssp126" & dist == "nodist") %>%
+    dplyr::select(plotcode, variable, metric, value) %>%
+    distinct() %>%
+    group_by(variable, metric) %>%
+    summarize(q05 = quantile(value, 0.05, na.rm = TRUE), 
+              q95 = quantile(value, 0.95, na.rm = TRUE)) %>%
+    mutate(range = abs(q95 - q05)) %>%
+    dplyr::select(variable, metric, range)
+  
+  # Calculate phi per scenario
+  out = rbind(data_pool %>% mutate(pool = "pool"), 
+        data_nopool %>% mutate(pool = "nopool")) %>%
+    # Merge ssp and dist scenario and remove useless ones
+    mutate(sspdist = paste0(ssp, "_", dist)) %>%
+    dplyr::select(-ssp, -dist, -ID.simulation) %>%
+    # Calculate difference between scenarios
+    pivot_wider(names_from = sspdist, values_from = value) %>%
+    mutate(dist = ssp585_dist - ssp126_nodist, 
+           nodist = ssp585_nodist - ssp126_nodist) %>%
+    dplyr::select(-ssp585_dist, -ssp126_nodist, -ssp585_nodist) %>%
+    pivot_longer(names_to = "dist.scenario", values_to = "diff", 
+                 all_of(c("dist", "nodist"))) %>%
+    # Add initial diff
+    left_join((.) %>% filter(time == min(.$time)) %>%
+                dplyr::select(plotcode, variable, pool, dist.scenario, metric, 
+                              diff.init = diff), 
+              by = c("plotcode", "variable", "dist.scenario", "metric", "pool")) %>%
+    # Add final diff
+    left_join((.) %>% filter(time == max(.$time)) %>%
+                dplyr::select(plotcode, variable, pool, dist.scenario, metric, 
+                              diff.final = diff), 
+              by = c("plotcode", "variable", "dist.scenario", "metric", "pool")) %>%
+    # Calculate phi
+    group_by(plotcode, climate, dqm_class, pca1, variable, dist.scenario, metric, pool) %>%
+    summarize(phi = mean(diff), 
+              phi.rate = (mean(diff.final) - mean(diff.init))/n()) %>%
+    ungroup() %>%
+    # Add phi calculated as a percentage of the range observed
+    left_join(data_range, by = c("variable", "metric")) %>%
+    mutate(phi.percent = phi/range*100, 
+           phi.rate.percent = phi.rate/range*100)
+  
+  # Return output
+  return(out)
+  
+}
+
+#' Make a map of phi per species composition metric
+#' @param NFI_data_sub subset of the NFI data with only plots selected
+#' @param phi_per_scenario Metric phi for each plot and each scenario
+#' @param metric.ref Do we use basal area ("BA') or density ("N") to wuantify abundance
+#' @param phi.ref Do we show the absolute change in composition ("fixed") or the
+#'                rate of change ("rate")
+#' @param file.out Name of the file to save, including path
+map_phi = function(NFI_data_sub, phi_per_scenario, metric.ref, phi.ref, file.out){
+  
+  # Bug fix since sf update
+  sf::sf_use_s2(FALSE)
+  
+  # Create output directory if needed
+  create_dir_if_needed(file.out)
+  
+  # Build data frame listing the variables to analyse
+  data.var = data.frame(
+    var = c("H", "FD", "cwm1", "cwm2"), 
+    title = c("Species_diversity", "Functional_diversity", 
+              "GrSurv", "ShadeDrought"), 
+    label = c("Species\ndiversity", "Functional\ndiversity",
+              "CWM on axis\nGrowth <-> Survival", 
+              "CWM on axis\nShade tol. <-> Drought tol.")
+  )
+  
+  # Choose the right metric based on reference defined
+  # - If phi is epressed as a rate per year
+  if(phi.ref == "rate"){
+    # The final phi is the change in metric per decade 
+    phi_per_scenario = phi_per_scenario %>%
+      mutate(phi.final = phi.rate.percent*10)
+    # Ajust the label
+    phi.label = "\u03c6 (% of range\nobserved per decade)"
+  }
+  # - If phi is epressed as an absolute change
+  if(phi.ref == "fixed"){
+    # Just change column name
+    phi_per_scenario = phi_per_scenario %>%
+      rename(phi.final = phi.percent)
+    # Ajust the label
+    phi.label = "\u03c6 (% of range\nobserved)"
+  }
+  
+  # Prepare data for mapping
+  data.map = phi_per_scenario %>%
+    filter(metric == metric.ref & dist.scenario == "dist" & pool == "pool") %>%
+    left_join((NFI_data_sub[, c("plotcode", "longitude", "latitude")] %>% distinct), 
+              by = "plotcode") %>%
+    ungroup() %>% 
+    dplyr::select(plotcode, longitude, latitude, variable, phi.final) %>%
+    st_as_sf(coords = c("longitude", "latitude"), crs = 4326, agr = "constant")
+  
+  # Initialize the grid for plotting
+  world_6933 <- st_transform(world, 4326) %>%
+    st_make_grid(n = c(300, 300), what = 'polygons', square = FALSE,
+                 flat_topped = TRUE) %>%
+    st_as_sf() %>%
+    mutate(hex = floor(as.numeric(rownames(.))))
+  
+  
+  # Average variable k across each hexagon
+  data.map_perhex = data.map %>%
+    st_join(world_6933, join = st_within) %>%
+    st_drop_geometry() %>%
+    group_by(hex, variable) %>%
+    summarize(phi = mean(phi.final, na.rm = TRUE), 
+              n = n()) %>%
+    filter(n > 7)
+  
+  # Add value of variable k to the grid. 
+  data_plot = merge(world_6933, data.frame(variable = data.var$var)) %>%
+    filter(hex %in% data.map_perhex$hex) %>%
+    left_join(data.map_perhex, by = c("hex", "variable")) %>%
+    left_join(data.var %>% rename(variable = var), by = "variable")
+  
+  # Initialize the list of plots
+  plotlist.out = vector(mode = "list", length = dim(data.var)[1])
+  
+  # Loop on all variable to plot
+  for(i in 1:dim(data.var)[1]){
+    
+    # Make the map
+    map.i = ggplot() +
+      geom_sf(data = ne_countries(scale = "medium", returnclass = "sf"), 
+              aes(geometry = geometry),
+              fill = "#343A40", color = "gray", show.legend = F, size = 0.2) +  
+      geom_sf(data = subset(data_plot, variable == data.var$var[i]), aes(fill = phi)) +
+      scale_fill_gradient2(
+        low = '#1368AA', mid = 'white', high = '#CB1B16', midpoint = 0,
+        name = phi.label, 
+        guide = "colourbar", 
+        limits = range(data_plot$phi)) +
+      coord_sf(xlim = c(-10, 32), ylim = c(36, 71)) + 
+      ggtitle(paste0("\u03c6(", data.var$var[i], "): Climate change effect on\n", 
+                     data.var$label[i])) +
+      theme(panel.background = element_rect(color = 'black', fill = 'white'), 
+            panel.grid = element_blank(), 
+            legend.key = element_blank(), 
+            legend.position = "bottom",
+            legend.title = element_text(hjust = 1, size = 12),
+            axis.text = element_blank(), 
+            axis.title = element_blank(), 
+            axis.ticks = element_blank(), 
+            plot.title = element_text(hjust = 0.5, size = 10),
+            strip.background = element_blank())
+    
+    # Make histogram for variable i
+    hist.i = data.map_perhex %>%
+      filter(variable == data.var$var[i]) %>%
+      mutate(phi.bin = round(phi*2.5, digits = 0)/2.5) %>%
+      group_by(phi.bin) %>%
+      summarize(n = n()) %>% 
+      ungroup() %>%
+      drop_na() %>%
+      ggplot(aes(x = phi.bin, y = n)) + 
+      geom_bar(color = "gray", stat = "identity", aes(fill = phi.bin)) + 
+      geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
+      geom_vline(xintercept = mean(
+        subset(data.map_perhex, variable == data.var$var[i])$phi, na.rm = TRUE), 
+        color = "purple", linetype = "dashed") +
+      scale_fill_gradient2(
+        low = '#1368AA', mid = 'white', high = '#CB1B16', midpoint = 0,
+        limits = range(data_plot$phi)) + 
+      theme(panel.background = element_rect(color = "black", fill = "white"), 
+            panel.grid = element_blank(), 
+            axis.text.y = element_blank(), 
+            axis.title = element_blank(), 
+            axis.ticks.y = element_blank(), 
+            legend.position = "none") + 
+      xlim(range(data_plot$phi)*1.1)
+    
+    # Assemble to get plot i
+    plotlist.out[[i]] = plot_grid((map.i + theme(legend.position = "none")), hist.i, 
+                                  align = "v", rel_heights = c(1, 0.3), ncol = 1)
+  }
+  
+  # Extract legend 
+  plot.legend = get_legend(map.i + theme(legend.text = element_text(size = 10)))
+  
+  # Assemble all plots
+  plot.out = plot_grid(plot_grid(plotlist = plotlist.out, nrow = 1, align = "hv", scale = 0.9), 
+                       plot.legend, ncol = 1, rel_heights = c(1, 0.1))
+  
+  # Save the plot
+  ggsave(file.out, plot.out, width = 26, height = 16 , units = "cm", 
+         bg = "white", dpi = 600)
+  
+  # Return file saved
+  return(file.out)
+  
+} 
+
+#' Plot the effect of climate and disturbances on temporal change in different variables
+#' @param phi_per_scenario Metric phi for each plot and each scenario
+#' @param metric.ref Do we use basal area ("BA') or density ("N") to wuantify abundance
+#' @param phi.ref Do we show the absolute change in composition ("fixed") or the
+#'                rate of change ("rate")
+#' @param dir.out Directory where to save plot
+plot_biogeo_effect = function(phi_per_scenario, metric.ref, phi.ref, dir.out){
+  
+  # Create output directory if needed
+  create_dir_if_needed(paste0(dir.out, "/test"))
+  
+  
+  # Build data frame listing the variables to analyse
+  data.var = data.frame(
+    var = c("H", "FD", "cwm1", "cwm2"), 
+    title = c("Species_diversity", "Functional_diversity", 
+              "GrSurv", "ShadeDrought"), 
+    label = c("Species\ndiversity", "Functional\ndiversity",
+              "CWM on axis\nGrowth <-> Survival", 
+              "CWM on axis\nShade tol. <-> Drought tol.")
+  )
+  
+  # Choose the right metric based on reference defined
+  # - If phi is epressed as a rate per year
+  if(phi.ref == "rate"){
+    # The final phi is the change in metric per decade 
+    phi_per_scenario = phi_per_scenario %>%
+      mutate(phi.final = phi.rate.percent*10)
+    # Ajust the label
+    phi.label = "\u03c6: climate change effect on species composition\n(% of range observed per decade)"
+  }
+  # - If phi is epressed as an absolute change
+  if(phi.ref == "fixed"){
+    # Just change column name
+    phi_per_scenario = phi_per_scenario %>%
+      rename(phi.final = phi.percent)
+    # Ajust the label
+    phi.label = "\u03c6: climate change effect on species composition\n(% of range observed)"
+  }
+  
+  # Add the quadratic term of climate and remove NA's
+  phi_per_scenario = phi_per_scenario %>% 
+    mutate(pca1sq = pca1^2) %>%
+    drop_na()
+  
+  # Initialize list of residual plots
+  resid.plotlist = vector(mode = "list", length = 4)
+  
+  
+  # Loop on all metrics
+  for(i in 1:dim(data.var)[1]){
+    
+    # Subset dataset with variable i
+    data.i = subset(phi_per_scenario, variable == data.var$var[i]) 
+    
+    # Full model with all interactions
+    model.i.full = lmerTest::lmer(phi.final ~ pca1 + pca1sq + dqm_class + 
+                                    dqm_class*pca1 + dqm_class*pca1sq + dist.scenario + 
+                                    dist.scenario*pca1 + dist.scenario*pca1sq + 
+                                    pool + pool*pca1 + pool*pca1sq + 
+                                    dqm_class*dist.scenario + dqm_class*pool + 
+                                    pool*dist.scenario + 
+                                    (1|plotcode), data = data.i)
+    
+    # Temporarily attach data to global environment
+    assign("data.i", data.i, envir = .GlobalEnv)
+    
+    # Reduce model with backward selection
+    model.i.reduced = lmerTest::get_model(lmerTest::step(model.i.full, 
+                                                         reduce.random = FALSE))
+    
+    # And then remove it from global environment
+    rm("data.i", envir = .GlobalEnv)
+    
+    # Percentage of variance explained based on chi square
+    var.explained.i = data.frame(var = rownames(Anova(model.i.reduced)), 
+                                 chisq = Anova(model.i.reduced)$Chisq) %>%
+      mutate(prop.var = chisq/sum(chisq)*100, 
+             var.expl = data.var$var[i]) 
+    
+    # Make residuals plot
+    plot.resid.i = data.frame(residuals = residuals(model.i.reduced), 
+                              fitted = fitted(model.i.reduced), 
+                              obs = data.i$phi.final, 
+                              pool = data.i$pool, 
+                              dist.scenario = data.i$dist.scenario, 
+                              dqm_class = data.i$dqm_class) %>%
+      mutate(factor = paste(pool, dist.scenario, sep = " - ")) %>%
+      ggplot(aes(x = fitted, y = obs)) + 
+      geom_point(alpha = 0.2) + 
+      geom_smooth(method = "loess", color = "red", se = FALSE) + 
+      geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "blue") + 
+      ggtitle(data.var$label[i]) + 
+      facet_grid(dqm_class ~ factor) +
+      theme(plot.title = element_text(hjust = 0.5)) 
+    
+    # Add to the final residual list
+    resid.plotlist[[i]] = plot.resid.i
+    
+    # Make predictions based on fixed effects
+    # -- Extract fixed effects
+    beta = fixef(model.i.reduced)
+    # -- Extract variance vocariance matrix
+    v = vcov(model.i.reduced)
+    # -- Initialize data for predictions
+    newdata.i <- expand.grid(
+      pca1 = seq(from = quantile(data.i$pca1, 0.01), 
+                 to = quantile(data.i$pca1, 0.99), length.out = 100), 
+      pool = unique(data.i$pool)[order(unique(data.i$pool))], 
+      dqm_class = unique(data.i$dqm_class)[order(unique(data.i$dqm_class))], 
+      dist.scenario = unique(data.i$dist.scenario)[order(unique(data.i$dist.scenario))]) %>%
+      mutate(pca1sq = pca1^2, phi.final = 0)
+    # -- Same formula without random plot
+    form <- formula(paste0("phi.final ~ ", paste(
+      rownames(Anova(model.i.reduced)), collapse = " + ")))
+    # -- Generate matrix
+    X <- model.matrix(form, newdata.i)
+    # -- Prediction
+    pred <- X %*% beta
+    # -- Standard error of prediction
+    pred.se <- sqrt(diag(X %*% v %*% t(X))) 
+    # -- Criteria to calculate confidence interval
+    crit <- -qnorm(0.05/2)
+    # -- Calculate confidence interval
+    lwr <- pred-crit*pred.se 
+    upr <- pred+crit*pred.se
+    # -- Add to the prediction dataset
+    newdata.i = newdata.i %>% 
+      mutate(fit = as.numeric(pred), lwr = as.numeric(lwr), upr = as.numeric(upr))
+    # -- Add variable
+    newdata.i$var = data.var$var[i]
+    
+    # Add to final datasets
+    if(i == 1){
+      data.predict = newdata.i
+      var.explained = var.explained.i
+    } else {
+      data.predict = rbind(data.predict, newdata.i)
+      var.explained = rbind(var.explained, var.explained.i)
+    } 
+    
+  }
+  
+  # assemble the final plot of residuals
+  plot.resid.out = plot_grid(plotlist = resid.plotlist, ncol = 2, scale = 0.95)
+  
+  # Add title and label to data.predict
+  data.predict = data.predict %>% 
+    left_join(data.var, by = "var") %>%
+    mutate(pool.title = ifelse(pool == "pool", "Regional pool\nincluded", 
+                               "Regional pool\nnot included"), 
+           dist.title = ifelse(dist.scenario == "dist", 
+                               "Disturbances\nincluded in\nsimulations", 
+                               "Disturbances\nnot included in\nsimulations")) %>%
+    mutate(label = factor(label, levels = data.var$label))
+  
+  # Make the plot of data and prediction
+  plot.predict = phi_per_scenario %>%
+    # Keep metric of interest
+    filter(metric == metric.ref) %>%
+    rename(var = variable) %>%
+    # Average phi per modality
+    group_by(climate, dqm_class, var, dist.scenario, pool) %>%
+    mutate(phi.final = as.numeric(phi.final)) %>%
+    summarize(pca1 = mean(pca1, na.rm = TRUE), 
+              phi.mean = mean(phi.final, na.rm = TRUE), 
+              phi.se = sd(phi.final, na.rm = TRUE)/sqrt(n())) %>%
+    # Calculate lower and upper confidence interval
+    mutate(lwr = phi.mean - phi.se, upr = phi.mean + phi.se) %>%
+    # Ajust x position of points  
+    mutate(pca1 = ifelse(dist.scenario == "dist", pca1 + 0.05, pca1 - 0.05)) %>%
+    # Change title of labels
+    mutate(pool.title = ifelse(pool == "pool", "Regional pool\nincluded", 
+                               "Regional pool\nnot included"), 
+           dist.title = ifelse(dist.scenario == "dist", 
+                               "Disturbances\nincluded in\nsimulations", 
+                               "Disturbances\nnot included in\nsimulations")) %>%
+    left_join(data.var, by = "var") %>%
+    mutate(label = factor(label, levels = data.var$label)) %>%
+    # Make plot
+    ggplot(aes(x = pca1, ymin = lwr, ymax = upr, color = pool.title, fill = pool.title), 
+           group = interaction(pool.title, dist.title)) +
+    geom_hline(yintercept = 0, linetype = "dashed") +
+    geom_ribbon(data = data.predict, aes(alpha = dist.title), 
+                inherit.aes = TRUE, color = NA) + 
+    geom_line(data = data.predict, aes(linetype = dist.title, y = fit), 
+              inherit.aes = TRUE) +
+    geom_errorbar(width = 0) + 
+    geom_point(aes(y = phi.mean, shape = dist.title)) + 
+    scale_color_manual(values = c("#386641", "#003049")) +
+    scale_fill_manual(values = c("#6A994E", "#669BBC")) +
+    scale_shape_manual(values = c(23, 21)) + 
+    scale_alpha_manual(values = c(0.7, 0.4)) +
+    ggh4x::facet_grid2(dqm_class ~ label, independent = "y", scales = "free_y") + 
+    xlab("Position along the climate axis\n(Hot-dry to cold-wet)") +
+    ylab(phi.label) +
+    theme(panel.background = element_rect(color = "black", fill = "white"), 
+          panel.grid = element_blank(), 
+          legend.key = element_blank(), 
+          legend.title = element_blank(),
+          strip.background = element_blank(), 
+          legend.text = element_text(size = 12), 
+          strip.text = element_text(size = 12), 
+          axis.title = element_text(size = 12))
+  
+  # Plot percentage of variance explained
+  plot.variance = var.explained %>%
+    # Add title per response variable
+    left_join(data.var %>% rename(var.expl = var), by = "var.expl") %>%
+    # Modify the name of variables
+    mutate(var = gsub("sq", "", var), 
+           var = gsub("pca1", "Mean climate", var), 
+           var = gsub("pool", "Regional pool", var), 
+           var = gsub("dqm\\_class", "Succession", var), 
+           var = gsub("dist\\.scenario", "Disturbances", var), 
+           var = gsub("\\:", "\\ x\\ ", var)) %>%
+    # Sum the variance explained by pca1 and pca1sq
+    group_by(var, label) %>%
+    summarize(prop.cumul = sum(prop.var, na.rm = TRUE)) %>%
+    ungroup() %>%
+    mutate(label = factor(label, levels = data.var$label)) %>%
+    # Make plot
+    ggplot(aes(x = var, y = prop.cumul, fill = prop.cumul)) + 
+    geom_bar(stat = "identity", color = "black") +
+    scale_fill_gradient(low = "white", high = "#C1121F") + 
+    facet_wrap(~ label, nrow = 1) + 
+    coord_flip() + 
+    ylab("Relative proportion of variance explained (%)") + 
+    xlab("") +
+    theme(panel.background = element_rect(color = "black", fill = "white"), 
+          panel.grid = element_blank(), 
+          strip.background = element_blank(), 
+          legend.position = "none", 
+          strip.text = element_text(size = 12), 
+          axis.title = element_text(size = 12))
+  
+  # Assemble plots
+  plot.out = plot_grid(
+    plot_grid((ggplot() + theme_void()), plot.predict, nrow = 1, rel_widths = c(0.095, 1)), 
+    (ggplot() + theme_void()), 
+    plot_grid(plot.variance, (ggplot() + theme_void()), nrow = 1, rel_widths = c(1, 0.17)), 
+    ncol = 1, rel_heights = c(1, 0.1, 0.4), labels = c("(a)", "", "(b)")) 
+  
+  # - Name plots
+  file.predict = paste0(dir.out, "/predict_phi.pdf")
+  file.resid = paste0(dir.out, "/fig_residuals_biogeo.pdf")
+  
+  # -- Save the plots
+  ggsave(file.predict, plot.out, width = 35, height = 20 , units = "cm", bg = "white")
+  ggsave(file.resid, plot.resid.out, width = 29, height = 20 , units = "cm", bg = "white")
+  
+  # Return the files saved
+  return(c(file.predict, file.resid))
+  
+}
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 ## functions for matreex -------------
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 

@@ -26,7 +26,7 @@ packages.in <- c("dplyr", "ggplot2", "matreex", "tidyr", "readxl", "cowplot",
                  "betareg", "car", "scales", "MASS", "broom.mixed", "lme4", 
                  "modi", "ggridges", "purrr", "checkmate", "FD", "sf", 
                  "rnaturalearth", "rnaturalearthdata", "sinkr", "egg", "xtable", 
-                 "spData", "ggnewscale")
+                 "spData", "ggnewscale", "lmerTest", "ggh4x")
 for(i in 1:length(packages.in)){
   if(!(packages.in[i] %in% rownames(installed.packages()))){
     install.packages(packages.in[i])
@@ -214,9 +214,46 @@ list(
 
 
   ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  # -- Extra code for new analyses ----
+  ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  
+  # Format the output of simulations with and without pool
+  tar_target(data_pool, format_sim_output(
+    sim_output_pool, traits_compiled, simul_list, NFI_succession)),
+  tar_target(data_nopool, format_sim_output(
+    sim_output_nopool, traits_compiled, simul_list, NFI_succession)),
+  
+  # Calculate phi for each scenario
+  tar_target(phi_per_scenario, get_phi_per_scenario(data_pool, data_nopool)),
+  
+  # Map phi for different configurations (way to express phi and abundance metric)
+  tar_target(fig_map_phi_N_rate, map_phi(
+    NFI_data_sub, phi_per_scenario, metric.ref = "N", phi.ref = "rate", 
+    "output/fig/new/map_phi_N_rate.jpg"), format = "file"),
+  tar_target(fig_map_phi_BA_rate, map_phi(
+    NFI_data_sub, phi_per_scenario, metric.ref = "BA", phi.ref = "rate", 
+    "output/fig/new/map_phi_BA_rate.jpg"), format = "file"),
+  tar_target(fig_map_phi_N_fixed, map_phi(
+    NFI_data_sub, phi_per_scenario, metric.ref = "N", phi.ref = "fixed", 
+    "output/fig/new/map_phi_N_fixed.jpg"), format = "file"),
+  tar_target(fig_map_phi_BA_fixed, map_phi(
+    NFI_data_sub, phi_per_scenario, metric.ref = "BA", phi.ref = "fixed", 
+    "output/fig/new/map_phi_BA_fixed.jpg"), format = "file"),
+  
+  # Plot the biogeographic effect for each metric - phi combination
+  tar_target(fig_biogeo_BAfixed, plot_biogeo_effect(
+    phi_per_scenario, "BA", "fixed", "output/fig/new/biogeo/BAfixed"), format = "file"),
+  tar_target(fig_biogeo_BArate, plot_biogeo_effect(
+    phi_per_scenario, "BA", "rate", "output/fig/new/biogeo/BArate"), format = "file"),
+  tar_target(fig_biogeo_Nfixed, plot_biogeo_effect(
+    phi_per_scenario, "N", "fixed", "output/fig/new/biogeo/Nfixed"), format = "file"),
+  tar_target(fig_biogeo_Nrate, plot_biogeo_effect(
+    phi_per_scenario, "N", "rate", "output/fig/new/biogeo/Nrate"), format = "file"),
+  
+  ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
   # -- Export plots ----
   ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
+  
   # Plots for methods
   # -- Plot the position of species along functional and climatic space
   tar_target(fig_funclim_species, plot_funclim_species(

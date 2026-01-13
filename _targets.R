@@ -268,6 +268,50 @@ list(
   
   tar_target(table_funclim_species, export_table_funclim_species(
     NFI_data_sub, NFI_plots_selected, traits_compiled, 
-    "output/tables/table_species.tex"), format = "file")
+    "output/tables/table_species.tex"), format = "file"), 
+  
+  
+  ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  # -- Chronosequence ----
+  ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  
+  # File for chronosequence
+  tar_target(file_chronoseq, "drafts/chronosequence/data_chronoseq.csv", 
+             format = "file"), 
+  
+  # Extract climate and species composition for chronosequence data
+  tar_target(sp_and_clim_chronoseq, get_sp_and_clim_chronoseq(
+    NFI_plots_selected, NFI_data, climate_files, traits_compiled, file_chronoseq)), 
+  
+  # Plots to include in the simulation of chronosequences
+  tar_target(plots_selected_chronoseq, subset(sp_and_clim_chronoseq, age <= 30)), 
+  
+  # Build regional pool for each plot to simulate for chronoseq
+  tar_target(regional_pool_chronoseq, make_regional_pool_chronoseq(
+    plots_selected_chronoseq, coef_ba_reg)), 
+  
+  # Species distribution in each plot for chronoseq simulations
+  tar_target(species_distrib_chronoseq, get_species_distrib_chronoseq(
+    plots_selected_chronoseq, file_chronoseq)), 
+  
+  # Mean climate for the chronosequence analysis
+  tar_target(meanclimate_chronoseq, get_meanclimate_chronoseq(
+    NFI_plots_selected, NFI_data, NFI_climate)), 
+  
+  # Make simulations
+  # - Vector with length equal to the number of simulations to make
+  tar_target(ID.simulation_chronoseq, c(1:dim(plots_selected_chronoseq)[1])), 
+  # - Run simulations
+  tar_target(simulations_chronoseq, make_simulations_chronoseq(
+    plots_selected_chronoseq, species_distrib_chronoseq, species_list, species_mu,
+    meanclimate_chronoseq, disp_kernel, regional_pool_chronoseq, use_pool = TRUE, 
+    ID.simulation_chronoseq), pattern = map(ID.simulation_chronoseq), iteration = "list"), 
+  # - Get simulation output
+  tar_target(sim_output_chronoseq, bind_rows(simulations_chronoseq, .id = NULL)), 
+  
+  # Plot output of the simulations
+  tar_target(fig_chronoseq, plot_chronosequence(
+    plots_selected_chronoseq, sim_output_chronoseq, sp_and_clim_chronoseq, 
+    traits_compiled, "drafts/chronosequence/fig_chronoseq.pdf"), format = "file")
 )
 

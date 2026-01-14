@@ -1980,8 +1980,8 @@ make_simulations_chronoseq_lag= function(
 #' @param file.out Name of the file to save, including path
 plot_chronosequence = function(plots_selected_chronoseq, sim_output_chronoseq, 
                                sp_and_clim_chronoseq, traits_compiled, 
-                               file.out){
-  
+                               file.out, metrics = c("div", "traits")){
+  metrics <- match.arg(metrics)
   # Create output directory if needed
   create_dir_if_needed(file.out)
   
@@ -2053,6 +2053,12 @@ plot_chronosequence = function(plots_selected_chronoseq, sim_output_chronoseq,
               se = sd(trait, na.rm = TRUE),
               n = n()) %>%
     ungroup() # %>% filter(n > 9)
+
+  if(metrics == "div"){
+    data.out <- filter(data.out, comp_var %in% c("H", "FD"))
+  } else {
+    data.out <- filter(data.out, comp_var %in% c("cwm_GrSurv", "cwm_ShadeDrought"))
+  }
   
   # Plot chronosequence vs simulations
   plot.out = data.out %>%

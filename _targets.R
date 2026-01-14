@@ -355,10 +355,10 @@ list(
   # Plot output of the simulations
   tar_target(fig_chronoseq, plot_chronosequence(
     plots_selected_chronoseq, sim_output_chronoseq, sp_and_clim_chronoseq, 
-    traits_compiled, "drafts/chronosequence/fig_chronoseq.pdf"), format = "file"), 
+    traits_compiled, metrics = "div", "drafts/chronosequence/fig_chronoseq.pdf"), format = "file"), 
   tar_target(fig_chronoseq_lag, plot_chronosequence(
     plots_selected_chronoseq, sim_output_chronoseq_lag, sp_and_clim_chronoseq, 
-    traits_compiled, "drafts/chronosequence/fig_chronoseq_lag.pdf"), format = "file"), 
+    traits_compiled, metrics = "div", "drafts/chronosequence/fig_chronoseq_lag.pdf"), format = "file"), 
   # Maxime code
   tar_target(plot_per_climate, split(plots_selected_chronoseq, 
                                      plots_selected_chronoseq$climate
@@ -383,11 +383,11 @@ list(
   tar_target(sim_mean_chronoseq, bind_rows(simulations_mean_chronoseq, .id = NULL)),
   tar_target(fig_mean_chronoseq, plot_chronosequence(
     plots_selected_chronoseq, sim_mean_chronoseq, sp_and_clim_chronoseq, 
-    traits_compiled, "drafts/chronosequence/fig_mean_chronoseq.pdf"), format = "file"),
+    traits_compiled, metrics = "traits", "drafts/chronosequence/fig_mean_chronoseq.pdf"), format = "file"),
   tar_target(sim_chronoseq_meanlag, bind_rows(simulations_chronoseq_meanlag, .id = NULL)),
   tar_target(fig_mean_chronoseq_lag, plot_chronosequence(
     plots_selected_chronoseq, sim_chronoseq_meanlag, sp_and_clim_chronoseq, 
-    traits_compiled, "drafts/chronosequence/fig_mean_chronoseq_lag.pdf"), format = "file")
+    traits_compiled, metrics = "traits", "drafts/chronosequence/fig_mean_chronoseq_lag.pdf"), format = "file")
   
 )
 

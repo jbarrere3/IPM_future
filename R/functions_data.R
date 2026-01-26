@@ -2435,7 +2435,17 @@ plot_biogeo_effect = function(phi_per_scenario, metric.ref, phi.ref, dir.out){
   
   # Add the quadratic term of climate and remove NA's
   phi_per_scenario = phi_per_scenario %>% 
-    mutate(pca1sq = pca1^2) %>%
+    # Keep metric of interest
+    filter(metric == metric.ref) %>%
+    rename(var = variable) %>%
+    # Average phi per modality
+    group_by(climate, dqm_class, var, dist.scenario, pool) %>%
+    mutate(phi.final = as.numeric(phi.final)) %>%
+    summarize(pca1 = mean(pca1, na.rm = TRUE),
+              phi.mean = mean(phi.final, na.rm = TRUE),
+              phi.se = sd(phi.final, na.rm = TRUE)/sqrt(n())) %>%
+    mutate(pca1sq = pca1^2, 
+           w = 1/phi.se) %>%
     drop_na()
   
   # Initialize list of residual plots
@@ -2446,16 +2456,16 @@ plot_biogeo_effect = function(phi_per_scenario, metric.ref, phi.ref, dir.out){
   for(i in 1:dim(data.var)[1]){
     
     # Subset dataset with variable i
-    data.i = subset(phi_per_scenario, variable == data.var$var[i]) 
+    data.i = subset(phi_per_scenario, var == data.var$var[i]) 
     
     # Full model with all interactions
-    model.i.full = lmerTest::lmer(phi.final ~ pca1 + pca1sq + dqm_class + 
+    model.i.full = lmerTest::lmer(phi.mean ~ pca1 + pca1sq + dqm_class + 
                                     dqm_class*pca1 + dqm_class*pca1sq + dist.scenario + 
                                     dist.scenario*pca1 + dist.scenario*pca1sq + 
                                     pool + pool*pca1 + pool*pca1sq + 
                                     dqm_class*dist.scenario + dqm_class*pool + 
                                     pool*dist.scenario + 
-                                    (1|plotcode), data = data.i)
+                                    (1|climate), data = data.i, weights = w)
     
     # Temporarily attach data to global environment
     assign("data.i", data.i, envir = .GlobalEnv)
@@ -2476,7 +2486,7 @@ plot_biogeo_effect = function(phi_per_scenario, metric.ref, phi.ref, dir.out){
     # Make residuals plot
     plot.resid.i = data.frame(residuals = residuals(model.i.reduced), 
                               fitted = fitted(model.i.reduced), 
-                              obs = data.i$phi.final, 
+                              obs = data.i$phi.mean, 
                               pool = data.i$pool, 
                               dist.scenario = data.i$dist.scenario, 
                               dqm_class = data.i$dqm_class) %>%
@@ -2499,14 +2509,14 @@ plot_biogeo_effect = function(phi_per_scenario, metric.ref, phi.ref, dir.out){
     v = vcov(model.i.reduced)
     # -- Initialize data for predictions
     newdata.i <- expand.grid(
-      pca1 = seq(from = quantile(data.i$pca1, 0.01), 
-                 to = quantile(data.i$pca1, 0.99), length.out = 100), 
+      pca1 = seq(from = min(data.i$pca1), 
+                 to = max(data.i$pca1), length.out = 100), 
       pool = unique(data.i$pool)[order(unique(data.i$pool))], 
       dqm_class = unique(data.i$dqm_class)[order(unique(data.i$dqm_class))], 
       dist.scenario = unique(data.i$dist.scenario)[order(unique(data.i$dist.scenario))]) %>%
-      mutate(pca1sq = pca1^2, phi.final = 0)
+      mutate(pca1sq = pca1^2, phi.mean = 0)
     # -- Same formula without random plot
-    form <- formula(paste0("phi.final ~ ", paste(
+    form <- formula(paste0("phi.mean ~ ", paste(
       rownames(Anova(model.i.reduced)), collapse = " + ")))
     # -- Generate matrix
     X <- model.matrix(form, newdata.i)
@@ -2551,15 +2561,6 @@ plot_biogeo_effect = function(phi_per_scenario, metric.ref, phi.ref, dir.out){
   
   # Make the plot of data and prediction
   plot.predict = phi_per_scenario %>%
-    # Keep metric of interest
-    filter(metric == metric.ref) %>%
-    rename(var = variable) %>%
-    # Average phi per modality
-    group_by(climate, dqm_class, var, dist.scenario, pool) %>%
-    mutate(phi.final = as.numeric(phi.final)) %>%
-    summarize(pca1 = mean(pca1, na.rm = TRUE), 
-              phi.mean = mean(phi.final, na.rm = TRUE), 
-              phi.se = sd(phi.final, na.rm = TRUE)/sqrt(n())) %>%
     # Calculate lower and upper confidence interval
     mutate(lwr = phi.mean - phi.se, upr = phi.mean + phi.se) %>%
     # Ajust x position of points  
@@ -2581,10 +2582,11 @@ plot_biogeo_effect = function(phi_per_scenario, metric.ref, phi.ref, dir.out){
     geom_line(data = data.predict, aes(linetype = dist.title, y = fit), 
               inherit.aes = TRUE) +
     geom_errorbar(width = 0) + 
-    geom_point(aes(y = phi.mean, shape = dist.title)) + 
+    geom_point(aes(y = phi.mean, shape = dist.title, size = dist.title)) + 
     scale_color_manual(values = c("#386641", "#003049")) +
     scale_fill_manual(values = c("#6A994E", "#669BBC")) +
     scale_shape_manual(values = c(23, 21)) + 
+    scale_size_manual(values = c(2, 2.5)) +
     scale_alpha_manual(values = c(0.7, 0.4)) +
     ggh4x::facet_grid2(dqm_class ~ label, independent = "y", scales = "free_y") + 
     xlab("Position along the climate axis\n(Hot-dry to cold-wet)") +
@@ -2637,17 +2639,19 @@ plot_biogeo_effect = function(phi_per_scenario, metric.ref, phi.ref, dir.out){
     ncol = 1, rel_heights = c(1, 0.1, 0.4), labels = c("(a)", "", "(b)")) 
   
   # - Name plots
-  file.predict = paste0(dir.out, "/predict_phi.pdf")
+  file.predict = paste0(dir.out, "/predict_phi.jpg")
   file.resid = paste0(dir.out, "/fig_residuals_biogeo.pdf")
   
   # -- Save the plots
-  ggsave(file.predict, plot.out, width = 35, height = 20 , units = "cm", bg = "white")
+  ggsave(file.predict, plot.out, width = 35, height = 20 , units = "cm", bg = "white", dpi = 600)
   ggsave(file.resid, plot.resid.out, width = 29, height = 20 , units = "cm", bg = "white")
   
-  # Return the files saved
+  # Return files generated
   return(c(file.predict, file.resid))
-  
+
 }
+
+
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 ## functions for matreex -------------
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

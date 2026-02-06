@@ -387,7 +387,44 @@ list(
   tar_target(sim_chronoseq_meanlag, bind_rows(simulations_chronoseq_meanlag, .id = NULL)),
   tar_target(fig_mean_chronoseq_lag, plot_chronosequence(
     plots_selected_chronoseq, sim_chronoseq_meanlag, sp_and_clim_chronoseq, 
-    traits_compiled, metrics = "traits", "drafts/chronosequence/fig_mean_chronoseq_lag.pdf"), format = "file")
+    traits_compiled, metrics = "traits", "drafts/chronosequence/fig_mean_chronoseq_lag.pdf"), format = "file"), 
   
+  
+  ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  # -- SDM analysis ----
+  ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  
+  
+  # Format climate data for chronosequence analysis
+  tar_target(data_clim_SDM, format_clim_SDM(climate_dist_dflist, NFI_plots_selected)), 
+  
+  # Plot temporal change in climate
+  tar_target(fig_clim_SDM, plot_climate_SDM(
+    data_clim_SDM, "drafts/20260205_SDM/fig_clim_SDM.jpg"), format = "file"), 
+  
+  # Coefficients of the SDM to predict regional basal area from climate
+  tar_target(file_coef_SDM, "drafts/20260205_SDM/coef_reg_ba.csv", format = "file"), 
+  tar_target(coef_SDM, fread(file_coef_SDM)), 
+  
+  # Calculate regional basal area from climate
+  tar_target(reg_ba_SDM, get_reg_ba_SDM(
+    clim_pca, data_clim_SDM, coef_SDM, species_list)), 
+  
+  # Calculate species compositon at each scenario and timestep
+  tar_target(sp.composition_SDM, get_sp.composition_SDM(
+    traits_compiled, reg_ba_SDM)), 
+  
+  # Plot change in species composition calculated from SDM
+  tar_target(fig_sp.composition_SDM, plot_sp.composition_SDM(
+    sp.composition_SDM, "drafts/20260205_SDM/fig_spcompo_SDM.jpg"), format = "file"), 
+  
+  # Calculate phi per variable and per climate
+  tar_target(phi_per_climate_SDM, get_phi_per_scenario_SDM(
+    sp.composition_SDM, data_pool)), 
+  
+  # Compare phi in simulations vs in SDM
+  tar_target(fig_phi_simulations_vs_SDM, plot_phi_simulations_vs_SDM(
+    phi_per_climate_SDM, phi_per_scenario, "drafts/20260205_SDM/fig_phi_SDM.jpg"), 
+    format = "file")
 )
 

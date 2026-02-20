@@ -82,6 +82,8 @@ list(
     NFI_disturbance, plotcode %in% NFI_plots_selected$plotcode)),
   tar_target(NFI_climate_sub, subset(
     NFI_climate, plotcode %in% NFI_plots_selected$plotcode)),
+  # - Classify plots in succession stage
+  tar_target(NFI_succession, classify_succession(NFI_data_sub, NFI_plots_selected)),
   
   
   ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -212,11 +214,6 @@ list(
   tar_target(sim_output_pool, bind_rows(simulations_pool, .id = NULL)),
   tar_target(sim_output_nopool, bind_rows(simulations_nopool, .id = NULL)),
 
-
-  ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-  # -- Extra code for new analyses ----
-  ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-  
   # Format the output of simulations with and without pool
   tar_target(data_pool, format_sim_output(
     sim_output_pool, traits_compiled, simul_list, NFI_succession)),
@@ -229,64 +226,39 @@ list(
   # Map phi for different configurations (way to express phi and abundance metric)
   tar_target(fig_map_phi_N_rate, map_phi(
     NFI_data_sub, phi_per_scenario, metric.ref = "N", phi.ref = "rate", 
-    "output/fig/new/map_phi_N_rate.jpg"), format = "file"),
+    "output/fig/analyses/map_phi_N_rate.jpg"), format = "file"),
   tar_target(fig_map_phi_BA_rate, map_phi(
     NFI_data_sub, phi_per_scenario, metric.ref = "BA", phi.ref = "rate", 
-    "output/fig/new/map_phi_BA_rate.jpg"), format = "file"),
+    "output/fig/analyses/map_phi_BA_rate.jpg"), format = "file"),
   tar_target(fig_map_phi_N_fixed, map_phi(
     NFI_data_sub, phi_per_scenario, metric.ref = "N", phi.ref = "fixed", 
-    "output/fig/new/map_phi_N_fixed.jpg"), format = "file"),
+    "output/fig/analyses/map_phi_N_fixed.jpg"), format = "file"),
   tar_target(fig_map_phi_BA_fixed, map_phi(
     NFI_data_sub, phi_per_scenario, metric.ref = "BA", phi.ref = "fixed", 
-    "output/fig/new/map_phi_BA_fixed.jpg"), format = "file"),
+    "output/fig/analyses/map_phi_BA_fixed.jpg"), format = "file"),
   
   # Plot the biogeographic effect for each metric - phi combination
   tar_target(fig_biogeo_BAfixed, plot_biogeo_effect(
-    phi_per_scenario, "BA", "fixed", "output/fig/new/biogeo/BAfixed"), format = "file"),
+    phi_per_scenario, "BA", "fixed", "output/fig/analyses/biogeo/BAfixed"), format = "file"),
   tar_target(fig_biogeo_BArate, plot_biogeo_effect(
-    phi_per_scenario, "BA", "rate", "output/fig/new/biogeo/BArate"), format = "file"),
+    phi_per_scenario, "BA", "rate", "output/fig/analyses/biogeo/BArate"), format = "file"),
   tar_target(fig_biogeo_Nfixed, plot_biogeo_effect(
-    phi_per_scenario, "N", "fixed", "output/fig/new/biogeo/Nfixed"), format = "file"),
+    phi_per_scenario, "N", "fixed", "output/fig/analyses/biogeo/Nfixed"), format = "file"),
   tar_target(fig_biogeo_Nrate, plot_biogeo_effect(
-    phi_per_scenario, "N", "rate", "output/fig/new/biogeo/Nrate"), format = "file"),
+    phi_per_scenario, "N", "rate", "output/fig/analyses/biogeo/Nrate"), format = "file"),
   
   ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
   # -- Export plots ----
   ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
   
   # Plots for methods
-  # -- Plot the position of species along functional and climatic space
-  tar_target(fig_funclim_species, plot_funclim_species(
-    NFI_data_sub, NFI_plots_selected, traits_compiled,
-    "output/fig/methods/fig_funclim_species.jpg"), format = "file"),
   # -- Plot the map, and climate change on one plot
   tar_target(fig_map_clim_dist, plot_map_clim_dist(
     NFI_plots_selected, climate_dist_dflist,
     "output/fig/methods/fig_map_clim_dist.jpg"), format = "file"),
 
-
-  # Plot for analyses
-  # - Classify plots in succession stage
-  tar_target(NFI_succession, classify_succession(NFI_data_sub, NFI_plots_selected)),
-  # - Biogeo effect only for abundance as N
-  tar_target(fig_biogeo_effect_N, plot_biogeo_effect_per.metric(
-    sim_output_pool, NFI_succession, simul_list, NFI_data_sub, traits_compiled, "N",
-    list(fig = "output/fig/analyses/fig_biogeo_effect_N.jpg", 
-         resid = "output/fig/supplementary/fig_residuals_biogeo.jpg")), format = "file"),
-  # - Local effect only for abundance as N
-  tar_target(fig_pool_N, plot_pool_effect(
-    regional_pool, sim_output_pool, sim_output_nopool, simul_list, NFI_data_sub, 
-    traits_compiled, dist_occurence, "N", 
-    list(fig = "output/fig/analyses/fig_pool_N.jpg", 
-         resid = "output/fig/supplementary/fig_residuals_pool.jpg")), format = "file"),
-  
   
   # Plots for supplementary material
-  # - biogeo effect only for abundance as N but without the regional pool
-  tar_target(fig_biogeo_effect_N_nopool, plot_biogeo_effect_per.metric(
-    sim_output_nopool, NFI_succession, simul_list, NFI_data_sub, traits_compiled, "N",
-    list(fig = "output/fig/supplementary/fig_biogeo_effect_N_nopool.jpg", 
-         resid = "output/fig/supplementary/fig_residuals_biogeo_nopool.jpg")), format = "file"),
   # - plot the resulting size distribution per succession and climate
   tar_target(fig_distrib_succession, plot_succession_distrib(
     NFI_succession, "output/fig/supplementary/fig_distrib.jpg"), format = "file"),
@@ -313,7 +285,7 @@ list(
   ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
   
   # File for chronosequence
-  tar_target(file_chronoseq, "drafts/chronosequence/data_chronoseq.csv", 
+  tar_target(file_chronoseq, "data/Chronosequence/data_chronoseq.csv", 
              format = "file"), 
   
   # Extract climate and species composition for chronosequence data
@@ -355,10 +327,12 @@ list(
   # Plot output of the simulations
   tar_target(fig_chronoseq, plot_chronosequence(
     plots_selected_chronoseq, sim_output_chronoseq, sp_and_clim_chronoseq, 
-    traits_compiled, metrics = "div", "drafts/chronosequence/fig_chronoseq.pdf"), format = "file"), 
+    traits_compiled, metrics = "div", 
+    "output/fig/supplementary/chronosequence/fig_chronoseq.pdf"), format = "file"), 
   tar_target(fig_chronoseq_lag, plot_chronosequence(
     plots_selected_chronoseq, sim_output_chronoseq_lag, sp_and_clim_chronoseq, 
-    traits_compiled, metrics = "div", "drafts/chronosequence/fig_chronoseq_lag.pdf"), format = "file"), 
+    traits_compiled, metrics = "div", 
+    "output/fig/supplementary/chronosequence/fig_chronoseq_lag.pdf"), format = "file"), 
   # Maxime code
   tar_target(plot_per_climate, split(plots_selected_chronoseq, 
                                      plots_selected_chronoseq$climate
@@ -383,11 +357,13 @@ list(
   tar_target(sim_mean_chronoseq, bind_rows(simulations_mean_chronoseq, .id = NULL)),
   tar_target(fig_mean_chronoseq, plot_chronosequence(
     plots_selected_chronoseq, sim_mean_chronoseq, sp_and_clim_chronoseq, 
-    traits_compiled, metrics = "traits", "drafts/chronosequence/fig_mean_chronoseq.pdf"), format = "file"),
+    traits_compiled, metrics = "traits", 
+    "output/fig/supplementary/chronosequence/fig_mean_chronoseq.pdf"), format = "file"),
   tar_target(sim_chronoseq_meanlag, bind_rows(simulations_chronoseq_meanlag, .id = NULL)),
   tar_target(fig_mean_chronoseq_lag, plot_chronosequence(
     plots_selected_chronoseq, sim_chronoseq_meanlag, sp_and_clim_chronoseq, 
-    traits_compiled, metrics = "traits", "drafts/chronosequence/fig_mean_chronoseq_lag.pdf"), format = "file"), 
+    traits_compiled, metrics = "traits", 
+    "output/fig/supplementary/chronosequence/fig_mean_chronoseq_lag.pdf"), format = "file"), 
   
   
   ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -400,10 +376,10 @@ list(
   
   # Plot temporal change in climate
   tar_target(fig_clim_SDM, plot_climate_SDM(
-    data_clim_SDM, "drafts/20260205_SDM/fig_clim_SDM.jpg"), format = "file"), 
+    data_clim_SDM, "output/fig/supplementary/SDM/fig_clim_SDM.jpg"), format = "file"), 
   
   # Coefficients of the SDM to predict regional basal area from climate
-  tar_target(file_coef_SDM, "drafts/20260205_SDM/coef_reg_ba.csv", format = "file"), 
+  tar_target(file_coef_SDM, "data/Static_model/coef_reg_ba.csv", format = "file"), 
   tar_target(coef_SDM, fread(file_coef_SDM)), 
   
   # Calculate regional basal area from climate
@@ -416,7 +392,7 @@ list(
   
   # Plot change in species composition calculated from SDM
   tar_target(fig_sp.composition_SDM, plot_sp.composition_SDM(
-    sp.composition_SDM, "drafts/20260205_SDM/fig_spcompo_SDM.jpg"), format = "file"), 
+    sp.composition_SDM, "output/fig/supplementary/SDM/fig_spcompo_SDM.jpg"), format = "file"), 
   
   # Calculate phi per variable and per climate
   tar_target(phi_per_climate_SDM, get_phi_per_scenario_SDM(
@@ -424,7 +400,7 @@ list(
   
   # Compare phi in simulations vs in SDM
   tar_target(fig_phi_simulations_vs_SDM, plot_phi_simulations_vs_SDM(
-    phi_per_climate_SDM, phi_per_scenario, "drafts/20260205_SDM/fig_phi_SDM.jpg"), 
+    phi_per_climate_SDM, phi_per_scenario, "output/fig/supplementary/SDM/fig_phi_SDM.jpg"), 
     format = "file")
 )
 

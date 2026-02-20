@@ -470,8 +470,7 @@ map_phi = function(NFI_data_sub, phi_per_scenario, metric.ref, phi.ref, file.out
       scale_fill_gradient2(
         low = '#1368AA', mid = 'white', high = '#CB1B16', midpoint = 0,
         name = phi.label, 
-        guide = "colourbar", 
-        limits = range(data_plot$phi)) +
+        guide = "colourbar") +
       coord_sf(xlim = c(-10, 32), ylim = c(36, 71)) + 
       ggtitle(paste0("\u03c6(", data.var$var[i], "): Climate change effect on\n", 
                      data.var$label[i])) +
@@ -489,42 +488,39 @@ map_phi = function(NFI_data_sub, phi_per_scenario, metric.ref, phi.ref, file.out
     # Make histogram for variable i
     hist.i = data.map_perhex %>%
       filter(variable == data.var$var[i]) %>%
-      mutate(phi.bin = round(phi*2.5, digits = 0)/2.5) %>%
-      group_by(phi.bin) %>%
-      summarize(n = n()) %>% 
+      mutate(class = cut(phi, breaks = seq(from = min(.$phi, na.rm = TRUE), 
+                                           to = max(.$phi, na.rm = TRUE), 
+                                           length.out = 10))) %>%
+      group_by(class) %>%
+      summarize(n = n(), 
+                phi.bin = median(phi, na.rm = TRUE)) %>%
       ungroup() %>%
       drop_na() %>%
-      ggplot(aes(x = phi.bin, y = n)) + 
-      geom_bar(color = "gray", stat = "identity", aes(fill = phi.bin)) + 
+      ggplot(aes(x = phi.bin, y = n)) +
+      geom_bar(color = "gray", stat = "identity", aes(fill = phi.bin)) +
       geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
       geom_vline(xintercept = mean(
         subset(data.map_perhex, variable == data.var$var[i])$phi, na.rm = TRUE), 
         color = "purple", linetype = "dashed") +
       scale_fill_gradient2(
-        low = '#1368AA', mid = 'white', high = '#CB1B16', midpoint = 0,
-        limits = range(data_plot$phi)) + 
+        low = '#1368AA', mid = 'white', high = '#CB1B16', midpoint = 0) + 
       theme(panel.background = element_rect(color = "black", fill = "white"), 
             panel.grid = element_blank(), 
             axis.text.y = element_blank(), 
             axis.title = element_blank(), 
             axis.ticks.y = element_blank(), 
-            legend.position = "none") + 
-      xlim(range(data_plot$phi)*1.1)
+            legend.position = "none") 
     
     # Assemble to get plot i
     plotlist.out[[i]] = plot_grid((map.i + theme(legend.position = "none")), hist.i, 
                                   align = "v", rel_heights = c(1, 0.3), ncol = 1)
   }
   
-  # Extract legend 
-  plot.legend = get_legend(map.i + theme(legend.text = element_text(size = 10)))
-  
   # Assemble all plots
-  plot.out = plot_grid(plot_grid(plotlist = plotlist.out, nrow = 1, align = "hv", scale = 0.9), 
-                       plot.legend, ncol = 1, rel_heights = c(1, 0.1))
+  plot.out = plot_grid(plotlist = plotlist.out, nrow = 1, align = "hv", scale = 0.9)
   
   # Save the plot
-  ggsave(file.out, plot.out, width = 26, height = 16 , units = "cm", 
+  ggsave(file.out, plot.out, width = 26, height = 13 , units = "cm", 
          bg = "white", dpi = 600)
   
   # Return file saved
@@ -740,7 +736,8 @@ plot_biogeo_effect = function(phi_per_scenario, metric.ref, phi.ref, dir.out){
           axis.title = element_text(size = 12))
   
   # Plot percentage of variance explained
-  plot.variance = var.explained %>%
+  # - Group quadratic terms
+  data.variance = var.explained %>%
     # Add title per response variable
     left_join(data.var %>% rename(var.expl = var), by = "var.expl") %>%
     # Modify the name of variables
@@ -753,9 +750,14 @@ plot_biogeo_effect = function(phi_per_scenario, metric.ref, phi.ref, dir.out){
     # Sum the variance explained by pca1 and pca1sq
     group_by(var, label) %>%
     summarize(prop.cumul = sum(prop.var, na.rm = TRUE)) %>%
-    ungroup() %>%
-    mutate(label = factor(label, levels = data.var$label)) %>%
-    # Make plot
+    ungroup() 
+  # - Arrange by cumulated variance
+  levels.variance = (data.variance %>% group_by(var) %>% 
+                       summarize(m = mean(prop.cumul)) %>% arrange(m))$var
+  # - Complete the plot
+  plot.variance = data.variance %>%
+    mutate(label = factor(label, levels = data.var$label), 
+           var = factor(var, levels = levels.variance)) %>%
     ggplot(aes(x = var, y = prop.cumul, fill = prop.cumul)) + 
     geom_bar(stat = "identity", color = "black") +
     scale_fill_gradient(low = "white", high = "#C1121F") + 

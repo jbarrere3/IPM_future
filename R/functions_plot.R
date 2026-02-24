@@ -413,6 +413,7 @@ map_phi = function(NFI_data_sub, phi_per_scenario, metric.ref, phi.ref, file.out
       mutate(phi.final = phi.rate.percent*10)
     # Ajust the label
     phi.label = "\u03c6 (% of range\nobserved per decade)"
+    phi.label.long = "\u03c6 : climate change effect on species composition\n(% of range observed per decade)"
   }
   # - If phi is epressed as an absolute change
   if(phi.ref == "fixed"){
@@ -421,6 +422,7 @@ map_phi = function(NFI_data_sub, phi_per_scenario, metric.ref, phi.ref, file.out
       rename(phi.final = phi.percent)
     # Ajust the label
     phi.label = "\u03c6 (% of range\nobserved)"
+    phi.label.long = "\u03c6 : climate change effect on species composition\n(% of range observed)"
   }
   
   # Prepare data for mapping
@@ -516,11 +518,15 @@ map_phi = function(NFI_data_sub, phi_per_scenario, metric.ref, phi.ref, file.out
                                   align = "v", rel_heights = c(1, 0.3), ncol = 1)
   }
   
+  # Make a separate plot for xlab
+  plot.xlab = ggdraw() + draw_label(phi.label.long, hjust = 0.5) 
+  
   # Assemble all plots
-  plot.out = plot_grid(plotlist = plotlist.out, nrow = 1, align = "hv", scale = 0.9)
+  plot.out = plot_grid(plot_grid(plotlist = plotlist.out, nrow = 1, align = "hv", scale = 0.9), 
+                       plot.xlab, ncol = 1, rel_heights = c(1, 0.1))
   
   # Save the plot
-  ggsave(file.out, plot.out, width = 26, height = 13 , units = "cm", 
+  ggsave(file.out, plot.out, width = 26, height = 15 , units = "cm", 
          bg = "white", dpi = 600)
   
   # Return file saved

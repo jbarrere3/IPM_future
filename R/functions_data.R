@@ -273,7 +273,7 @@ get_I_per_disturbance = function(intensity_file, quantile.ref){
 #' @param NFI_disturbance data of disturbance probability per plot
 #' @param NFI_climate data of climate per plot
 #' @param I_per_disturbance dataframe listing the intensity per disturbance agent
-get_clim_dist_df = function(NFI_disturbance, NFI_climate, I_per_disturbance){
+get_clim_dist_df = function(NFI_disturbance, NFI_climate, I_per_disturbance, nrep){
   
   # Initialize output list
   list.out = vector(mode='list', length=dim(NFI_disturbance)[1])
@@ -339,38 +339,50 @@ get_clim_dist_df = function(NFI_disturbance, NFI_climate, I_per_disturbance){
       dplyr::select(t, scenario, fire, storm) %>%
       drop_na()
     
-    # Loop on all scenario
-    for(j in 1:length(ssp.in)){
-      # Initialize the list for this scenario
-      eval(parse(text = paste0("list.out[[i]]$", ssp.in[j], " = list()")))
+    # Loop on all repetitions
+    for(k in 1:nrep){
       
-      # subset climate table and disturbance table to the right scenario
-      data.climate.ij = data.climate.i %>% filter(scenario %in% c("hist", ssp.in[j]))
-      data.disturbance.ij = data.disturbance.i %>% filter(scenario %in% c("hist", ssp.in[j]))
+      # Set the seed
+      set.seed(k)
       
-      # Initialize the disturbance table for scenario j
-      disturbance.ij = data.frame(t = year.table$t, IsSurv = FALSE) %>%
-        mutate(storm = rbinom(dim(.)[1], 1, data.disturbance.ij$storm), 
-               fire = rbinom(dim(.)[1], 1, data.disturbance.ij$fire)) %>%
-        mutate(type = case_when(fire == 1 & storm == 1 ~ sample(c("fire", "storm"), 1), 
-                                fire == 1 & storm == 0 ~ "fire", 
-                                fire == 0 & storm == 1 ~ "storm", 
-                                TRUE ~ "none")) %>%
-        filter(type != "none") %>%
-        mutate(intensity = ifelse(type == "fire", Ifire, Istorm)) %>%
-        dplyr::select(type, IsSurv, t, intensity)
+      # Initialize the list for this repetition
+      eval(parse(text = paste0("list.out[[i]]$rep", k, " = list()")))
       
-      # Finish formatting the climate table for this scenario
-      data.climate.ij = data.climate.ij  %>% 
-        dplyr::select(sgdd, wai, sgddb, waib, wai2, sgdd2, t)
+      # Loop on all scenario
+      for(j in 1:length(ssp.in)){
+        
+        # Initialize the list for this scenario
+        eval(parse(text = paste0("list.out[[i]]$rep", k, "$", ssp.in[j], " = list()")))
+        
+        # subset climate table and disturbance table to the right scenario
+        data.climate.ij = data.climate.i %>% filter(scenario %in% c("hist", ssp.in[j]))
+        data.disturbance.ij = data.disturbance.i %>% filter(scenario %in% c("hist", ssp.in[j]))
+        
+        # Initialize the disturbance table for scenario j
+        disturbance.ij = data.frame(t = year.table$t, IsSurv = FALSE) %>%
+          mutate(storm = rbinom(dim(.)[1], 1, data.disturbance.ij$storm), 
+                 fire = rbinom(dim(.)[1], 1, data.disturbance.ij$fire)) %>%
+          mutate(type = case_when(fire == 1 & storm == 1 ~ sample(c("fire", "storm"), 1), 
+                                  fire == 1 & storm == 0 ~ "fire", 
+                                  fire == 0 & storm == 1 ~ "storm", 
+                                  TRUE ~ "none")) %>%
+          filter(type != "none") %>%
+          mutate(intensity = ifelse(type == "fire", Ifire, Istorm)) %>%
+          dplyr::select(type, IsSurv, t, intensity)
+        
+        # Finish formatting the climate table for this scenario
+        data.climate.ij = data.climate.ij  %>% 
+          dplyr::select(sgdd, wai, sgddb, waib, wai2, sgdd2, t)
+        
+        # Add to the output list
+        # -- climate dataframe
+        eval(parse(text = paste0(
+          "list.out[[i]]$rep", k, "$", ssp.in[j], "$climate = data.climate.ij")))
+        # -- disturbance dataframe
+        eval(parse(text = paste0(
+          "list.out[[i]]$rep", k, "$", ssp.in[j], "$disturbance = disturbance.ij")))
+      }
       
-      # Add to the output list
-      # -- climate dataframe
-      eval(parse(text = paste0(
-        "list.out[[i]]$", ssp.in[j], "$climate = data.climate.ij")))
-      # -- disturbance dataframe
-      eval(parse(text = paste0(
-        "list.out[[i]]$", ssp.in[j], "$disturbance = disturbance.ij")))
     }
     
   }
@@ -386,40 +398,44 @@ get_clim_dist_df = function(NFI_disturbance, NFI_climate, I_per_disturbance){
 extend_disturbance = function(climate_dist_dflist, dist.duration){
   
   # Vector of years simulated
-  t.vec = climate_dist_dflist[[1]][[1]]$climate$t
+  t.vec = climate_dist_dflist[[1]][[1]][[1]]$climate$t
   
   # Initialize output
   out = climate_dist_dflist
   
   # Loop on all plotcodes
   for(i in 1:length(names(climate_dist_dflist))){
-    # Loop on all ssp scenarios
-    for(j in 1:length(names(climate_dist_dflist[[i]]))){
-      # Extract disturbance table ij
-      dist.ij = climate_dist_dflist[[i]][[j]]$disturbance
-      # Extend disturbance only if disturbance occured
-      if(dim(dist.ij)[1] > 0){
-        # Initialize the new disturbance dataframe
-        dist.ij.new = dist.ij
-        # Loop on all disturbances
-        for(k in 1:dim(dist.ij)[1]){
-          # Initialize extra years for disturbance k
-          dist.ijk = data.frame(type = dist.ij$type[k], IsSurv = FALSE, 
-                                t = c((dist.ij$t[k]+1):(dist.ij$t[k] + dist.duration - 1)), 
-                                intensity = dist.ij$intensity[k])
-          # If there are other disturbances after, remove overlapping disturbances
-          if(k < dim(dist.ij)[1]) dist.ijk = filter(dist.ijk, t < dist.ij$t[k+1])
-          # If it is the last disturbance, remove occurrences beyond maximum time
-          if(k == dim(dist.ij)[1]) dist.ijk = filter(dist.ijk, t <= max(t.vec))
-          # Add extra years to the new disturbance dataframe
-          dist.ij.new = rbind(dist.ij.new, dist.ijk)
+    # Loop on all repetitions
+    for(r in 1:length(names(climate_dist_dflist[[i]]))){
+      # Loop on all ssp scenarios
+      for(j in 1:length(names(climate_dist_dflist[[i]][[r]]))){
+        # Extract disturbance table ij
+        dist.ij = climate_dist_dflist[[i]][[r]][[j]]$disturbance
+        # Extend disturbance only if disturbance occured
+        if(dim(dist.ij)[1] > 0){
+          # Initialize the new disturbance dataframe
+          dist.ij.new = dist.ij
+          # Loop on all disturbances
+          for(k in 1:dim(dist.ij)[1]){
+            # Initialize extra years for disturbance k
+            dist.ijk = data.frame(type = dist.ij$type[k], IsSurv = FALSE, 
+                                  t = c((dist.ij$t[k]+1):(dist.ij$t[k] + dist.duration - 1)), 
+                                  intensity = dist.ij$intensity[k])
+            # If there are other disturbances after, remove overlapping disturbances
+            if(k < dim(dist.ij)[1]) dist.ijk = filter(dist.ijk, t < dist.ij$t[k+1])
+            # If it is the last disturbance, remove occurrences beyond maximum time
+            if(k == dim(dist.ij)[1]) dist.ijk = filter(dist.ijk, t <= max(t.vec))
+            # Add extra years to the new disturbance dataframe
+            dist.ij.new = rbind(dist.ij.new, dist.ijk)
+          }
+          # Order the new disturbance dataframe
+          dist.ij.new = dist.ij.new %>% arrange(t)
+          # Replace by the new disturbance dataset
+          out[[i]][[r]][[j]]$disturbance = dist.ij.new
         }
-        # Order the new disturbance dataframe
-        dist.ij.new = dist.ij.new %>% arrange(t)
-        # Replace by the new disturbance dataset
-        out[[i]][[j]]$disturbance = dist.ij.new
       }
     }
+    
   }
   
   # Return the new list 
@@ -599,12 +615,16 @@ get_dist_occurence = function(climate_dist_dflist){
   
   # Loop on all plotcodes
   for(i in 1:dim(out)[1]){
-    # Loop on all ssp scenarios
-    for(j in 1:length(names(climate_dist_dflist[[i]]))){
-      # Check the occurence of fire or of storm
-      if("storm" %in% climate_dist_dflist[[i]][[j]]$disturbance$type) out$storm.bin[i] = 1
-      if("fire" %in% climate_dist_dflist[[i]][[j]]$disturbance$type) out$fire.bin[i] = 1
+    # Loop on all repetitions
+    for(k in 1:length(names(climate_dist_dflist[[i]]))){
+      # Loop on all ssp scenarios
+      for(j in 1:length(names(climate_dist_dflist[[i]][[k]]))){
+        # Check the occurence of fire or of storm
+        if("storm" %in% climate_dist_dflist[[i]][[k]][[j]]$disturbance$type) out$storm.bin[i] = 1
+        if("fire" %in% climate_dist_dflist[[i]][[k]][[j]]$disturbance$type) out$fire.bin[i] = 1
+      }
     }
+    
   }
   
   # Return the output
@@ -616,7 +636,8 @@ get_dist_occurence = function(climate_dist_dflist){
 #' @param NFI_plots_selected dataframe listing the NFI plots selected for simulations
 #' @param NFI_forest_cover Proportion of forest cover in a 1km radius around each plot
 #' @param coef_ba_reg Coefficients to calculate the regional basal area
-make_regional_pool = function(NFI_plots_selected, NFI_forest_cover, coef_ba_reg){
+#' @param nrep Number of repetitions
+make_regional_pool = function(NFI_plots_selected, NFI_forest_cover, coef_ba_reg, nrep){
   
   # Initialize dataset for reg ba calculation
   data.in = expand.grid(plotcode = NFI_plots_selected$plotcode, 
@@ -637,30 +658,40 @@ make_regional_pool = function(NFI_plots_selected, NFI_forest_cover, coef_ba_reg)
     mutate(ba_reg = ba_reg_th*forest_cov_1km)
   
   # Initialize output
-  out = data.frame(plotcode = character(0), species = character(0), 
-                   ba_reg = character(0))
+  out = data.frame(plotcode = character(0), rep = character(0), 
+                   species = character(0), ba_reg = character(0))
   
-  # Loop on all plotcodes
-  for(i in 1:length(unique(data.in$plotcode))){
+  # Loop on all repetitions
+  for(r in 1:nrep){
     
-    # Subset dataset
-    # - right plotcode
-    data.i = data.in %>% filter(plotcode == unique(data.in$plotcode)[i])
+    # Set random seed
+    set.seed(r)
     
-    # Sort species
-    sp.i = unique(sample(x = data.i$species, size = 1 + rpois(1, unique(data.i$lambda)), 
-                         replace = FALSE, prob = data.i$prob))
-    
-    # Complete the output dataset
-    out = rbind(out, data.i %>% filter(species %in% sp.i) %>% 
-                  dplyr::select(plotcode, species, ba_reg))
-    
+    # Loop on all plotcodes
+    for(i in 1:length(unique(data.in$plotcode))){
+      
+      # Subset dataset
+      # - right plotcode
+      data.i = data.in %>% filter(plotcode == unique(data.in$plotcode)[i])
+      
+      # Sort species
+      sp.i = unique(sample(x = data.i$species, size = 1 + rpois(1, unique(data.i$lambda)), 
+                           replace = FALSE, prob = data.i$prob))
+      
+      # Complete the output dataset
+      out = rbind(out, data.i %>% filter(species %in% sp.i) %>% 
+                    mutate(rep = paste0("rep", r)) %>%
+                    dplyr::select(plotcode, rep, species, ba_reg))
+      
+    }
   }
+  
   
   # Return output
   return(out)
   
 }
+
 
 
 #' Calculate dqm, classify plots in succession stage and fit distributions
@@ -1003,18 +1034,19 @@ get_species_distrib = function(NFI_data_sub){
 #' Make a list of simulations to make
 #' @param NFI_plots_selected Information on the NFI plots selected
 #' @param ssp.in ssp scenarios to simulate
+#' @param nrep Number of repetitions to make
 make_simul_list = function(
-    NFI_plots_selected, ssp.in = c("ssp126", "ssp585")){
+    NFI_plots_selected, ssp.in = c("ssp126", "ssp585"), nrep){
   
   expand.grid(plotcode = NFI_plots_selected$plotcode, 
               ssp = ssp.in, 
-              dist = c("dist", "nodist")) %>%
-    filter(!(ssp == "ssp126" & dist == "dist")) %>%
+              dist = c("dist", "nodist"), 
+              rep = paste0("rep", c(1:nrep))) %>%
     left_join((NFI_plots_selected %>% dplyr::select(plotcode, climate, pca1)), 
               by = "plotcode") %>%
-    arrange(climate, plotcode, ssp, dist) %>%
+    arrange(climate, plotcode, ssp, dist, rep) %>%
     mutate(ID.simulation = c(1:dim(.)[1])) %>%
-    dplyr::select(ID.simulation, plotcode, pca1, ssp, dist, climate)
+    dplyr::select(ID.simulation, plotcode, pca1, ssp, dist, climate, rep)
   
 }
 
@@ -1041,19 +1073,21 @@ make_simulations = function(
   ssp.in = simul_list$ssp[ID.simulation]
   clim.in = simul_list$climate[ID.simulation]
   dist.in = simul_list$dist[ID.simulation]
+  rep.in = simul_list$rep[ID.simulation]
   
   
   # Extract climate, disturbance and distributions
-  climate.in = climate_dist_dflist[[plot.in]][[ssp.in]]$climate
-  disturbance.in = climate_dist_dflist[[plot.in]][[ssp.in]]$disturbance
+  climate.in = climate_dist_dflist[[plot.in]][[rep.in]][[ssp.in]]$climate
+  disturbance.in = climate_dist_dflist[[plot.in]][[rep.in]][[ssp.in]]$disturbance
   distributions.in = species_distrib[[plot.in]]
   
   # Final list of species based on regional pool and distribution.in
-  sp.reg = filter(regional_pool, plotcode == plot.in)$species
+  sp.reg = filter(regional_pool, plotcode == plot.in & rep == rep.in)$species
   sp.tot = unique(c(names(distributions.in), sp.reg))
   # Compile to make a regional pool
   reg.pool.in = (data.frame(species = sp.tot) %>%
-                   left_join(filter(regional_pool, plotcode == plot.in), by = "species") %>%
+                   left_join(filter(regional_pool, plotcode == plot.in & rep == rep.in), 
+                             by = "species") %>%
                    mutate(ba_reg = ifelse(is.na(ba_reg), 0, ba_reg)))$ba_reg
   names(reg.pool.in) = sp.tot
   # Vector of migration rates
@@ -1135,6 +1169,9 @@ make_simulations = function(
   
   # Return output list
   return(sim.in)
+
+
+  
 }
 
 
@@ -1196,7 +1233,9 @@ format_sim_output = function(sim_output, traits_compiled, simul_list, NFI_succes
   data.FD = sim_output %>%
     gather(key = "metric", value = "weight", "N", "BA") %>%
     # Only focus on the second half of the simulations
-    filter(time >= 70) %>%
+    filter(time %in% c(1, c(1:11)*10)) %>%
+    # Remove unobserved species (before it arrives via regional pool)
+    filter(weight > 0) %>%
     # Add traits data
     left_join(traits_compiled$species_coord, by = "species") %>%
     # Gather by functional axis
@@ -1219,7 +1258,9 @@ format_sim_output = function(sim_output, traits_compiled, simul_list, NFI_succes
   out = sim_output %>%
     gather(key = "metric", value = "weight", "N", "BA") %>%
     # Only focus on the second half of the simulations
-    filter(time >= 70) %>%
+    filter(time %in% c(1, c(1:11)*10)) %>%
+    # Remove unobserved species (before it arrives via regional pool)
+    filter(weight > 0) %>%
     # Add traits data
     left_join(traits_compiled$species_coord, by = "species") %>%
     # Calculate composition metrics
@@ -1307,6 +1348,39 @@ get_phi_per_scenario = function(data_pool, data_nopool){
   
 }
 
+#' Function to calculate community change over time
+#' @param data_pool Results of simulations with regional pool
+#' @param data_nopool Results of simulations without regional pool
+#' @param timerange numeric of length two indicating the time considered for community change
+get_delta = function(data_pool, data_nopool, timerange = c(1, 110)){
+  
+  # Assemble data pool and no pool
+  data = bind_rows(list(pool = data_pool, nopool = data_nopool), 
+                   .id = "pool") 
+  # Calculate the range of community change per metric
+  data_range = data %>%
+    group_by(plotcode, metric, variable) %>%
+    summarize(min = min(value, na.rm = TRUE), 
+              max = max(value, na.rm = TRUE)) %>%
+    mutate(diff = max - min) %>%
+    ungroup() %>% group_by(metric, variable) %>%
+    summarize(range = mean(diff, na.rm = TRUE))
+  
+  # Calculate temporal change for each metric and scenario
+  data_delta = data %>%
+    filter(time %in% timerange) %>%
+    mutate(time_cat = ifelse(time == min(timerange), "tmin", "tmax")) %>%
+    dplyr::select(- time) %>%
+    pivot_wider(names_from = "time_cat", values_from = "value") %>%
+    left_join(data_range, by = c("metric", "variable")) %>%
+    mutate(delta = (tmax - tmin)/range*100) %>%
+    dplyr::select(-range)
+    
+  
+  # Return output
+  return(data_delta)
+  
+}
 
 
 

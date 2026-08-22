@@ -74,7 +74,9 @@ list(
   # Filter data based on species present in IPM and climate
   # -- select NFI plots
   tar_target(NFI_plots_selected, select_NFI_plots(
-    NFI_data, NFI_climate, nclim = 10, nplots.per.clim = 1000)), 
+    NFI_data, NFI_climate, nclim = 10, nplots.per.clim = 20)), 
+  # -- Set number of repetitions for regional pool and disturbances
+  tar_target(nrep, 5),
   # -- subset all data
   tar_target(NFI_data_sub, subset(
     NFI_data, plotcode %in% NFI_plots_selected$plotcode)),
@@ -140,11 +142,11 @@ list(
   
   # Get the climate and disturbance dataframe for each plot and scenario
   tar_target(climate_dist_dflist, get_clim_dist_df(
-    NFI_disturbance_sub, NFI_climate_sub, I_per_disturbance)),
+    NFI_disturbance_sub, NFI_climate_sub, I_per_disturbance, nrep = 5)),
   
   # Get the occurence of fire and storm per plot
   tar_target(dist_occurence, get_dist_occurence(climate_dist_dflist)),
-  
+
   # Extend for the simulation the disturbances over several years
   tar_target(climate_dist_dflist_ext, extend_disturbance(climate_dist_dflist, 5)),
 
@@ -158,12 +160,12 @@ list(
   tar_target(wood.density_file, "data/Traits/GlobalWoodDensityDatabase.xls", format = "file"),
   tar_target(shade.tolerance_file, "data/Traits/shade_tolerance_FrenchNFI.csv", format = "file"),
   tar_target(TRY_file, "data/Traits/TRY_data_request_21092.txt", format = "file"),
+  # -- Get all species included in the simulations for filtering
+  tar_target(sp.in.sim, gsub("\\ ", "\\_", unique(species_list$species))),
   # -- Compile traits from different databases
   tar_target(traits_compiled, compile_traits(
     wood.density_file, traitsNFI_file, shade.tolerance_file, TRY_file, sp.in.sim)),
-  # -- Get all species included in the simulations for filtering
-  tar_target(sp.in.sim, gsub("\\ ", "\\_", unique(species_list$species))),
-
+  
 
   
   ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -173,10 +175,10 @@ list(
   # Extend the disturbance coefficients of matreex using traits
   tar_target(disturb_coef_ext, extend_disturb_coef(
     intensity_file, traits_compiled)),
-   
+
   # Build the regional pool of each NFI plot
   tar_target(regional_pool, make_regional_pool(
-    NFI_plots_selected, NFI_forest_cover, coef_ba_reg)),
+    NFI_plots_selected, NFI_forest_cover, coef_ba_reg, nrep)),
 
   # Get the size distribution of each species in each plot
   tar_target(species_distrib, get_species_distrib(NFI_data_sub)),
@@ -189,14 +191,14 @@ list(
     NFI_data_sub, NFI_plots_selected, regional_pool)),
   # -- Vector from 1 to number of species to make (useful for parallel computing)
   tar_target(ID.species, species_list$ID.species),
-  # -- Make species via branching over ID.species
+  # # -- Make species via branching over ID.species
   tar_target(species_mu, make_species_mu_rds(
     species_list, climate_margins, disturb_coef_ext, new_fit_list, ID.species),
              pattern = map(ID.species), iteration = "vector", format = "file"),
 
   # Make simulations
   # -- Create a list of simulations to perform
-  tar_target(simul_list, make_simul_list(NFI_plots_selected)),
+  tar_target(simul_list, make_simul_list(NFI_plots_selected, nrep = nrep)),
   # -- Vector from 1 to number of simulations to make (for branching)
   tar_target(ID.simulation, c(1:dim(simul_list)[1])),
   # -- Make simulations with regional pool
@@ -214,156 +216,159 @@ list(
   tar_target(sim_output_pool, bind_rows(simulations_pool, .id = NULL)),
   tar_target(sim_output_nopool, bind_rows(simulations_nopool, .id = NULL)),
 
-  # Format the output of simulations with and without pool
-  tar_target(data_pool, format_sim_output(
-    sim_output_pool, traits_compiled, simul_list, NFI_succession)),
-  tar_target(data_nopool, format_sim_output(
-    sim_output_nopool, traits_compiled, simul_list, NFI_succession)),
+  # # Format the output of simulations with and without pool
+  # tar_target(data_pool, format_sim_output(
+  #   sim_output_pool, traits_compiled, simul_list, NFI_succession)),
+  # tar_target(data_nopool, format_sim_output(
+  #   sim_output_nopool, traits_compiled, simul_list, NFI_succession)),
+  # 
+  # # Calculate community change for each scenario
+  # tar_target(delta, get_delta(data_pool, data_nopool, timerange = c(1, 110))),
   
-  # Calculate phi for each scenario
-  tar_target(phi_per_scenario, get_phi_per_scenario(data_pool, data_nopool)),
-  
-  # Map phi for different configurations (way to express phi and abundance metric)
-  tar_target(fig_map_phi_N_rate, map_phi(
-    NFI_data_sub, phi_per_scenario, metric.ref = "N", phi.ref = "rate", 
-    "output/fig/analyses/map_phi_N_rate.jpg"), format = "file"),
-  tar_target(fig_map_phi_BA_rate, map_phi(
-    NFI_data_sub, phi_per_scenario, metric.ref = "BA", phi.ref = "rate", 
-    "output/fig/analyses/map_phi_BA_rate.jpg"), format = "file"),
-  tar_target(fig_map_phi_N_fixed, map_phi(
-    NFI_data_sub, phi_per_scenario, metric.ref = "N", phi.ref = "fixed", 
-    "output/fig/analyses/map_phi_N_fixed.jpg"), format = "file"),
-  tar_target(fig_map_phi_BA_fixed, map_phi(
-    NFI_data_sub, phi_per_scenario, metric.ref = "BA", phi.ref = "fixed", 
-    "output/fig/analyses/map_phi_BA_fixed.jpg"), format = "file"),
-  
-  # Plot the biogeographic effect for each metric - phi combination
-  tar_target(fig_biogeo_BAfixed, plot_biogeo_effect(
-    phi_per_scenario, "BA", "fixed", "output/fig/analyses/biogeo/BAfixed"), format = "file"),
-  tar_target(fig_biogeo_BArate, plot_biogeo_effect(
-    phi_per_scenario, "BA", "rate", "output/fig/analyses/biogeo/BArate"), format = "file"),
-  tar_target(fig_biogeo_Nfixed, plot_biogeo_effect(
-    phi_per_scenario, "N", "fixed", "output/fig/analyses/biogeo/Nfixed"), format = "file"),
-  tar_target(fig_biogeo_Nrate, plot_biogeo_effect(
-    phi_per_scenario, "N", "rate", "output/fig/analyses/biogeo/Nrate"), format = "file"),
-  
+  # # Calculate phi for each scenario
+  # tar_target(phi_per_scenario, get_phi_per_scenario(data_pool, data_nopool)),
+  # 
+  # # Map phi for different configurations (way to express phi and abundance metric)
+  # tar_target(fig_map_phi_N_rate, map_phi(
+  #   NFI_data_sub, phi_per_scenario, metric.ref = "N", phi.ref = "rate", 
+  #   "output/fig/analyses/map_phi_N_rate.jpg"), format = "file"),
+  # tar_target(fig_map_phi_BA_rate, map_phi(
+  #   NFI_data_sub, phi_per_scenario, metric.ref = "BA", phi.ref = "rate", 
+  #   "output/fig/analyses/map_phi_BA_rate.jpg"), format = "file"),
+  # tar_target(fig_map_phi_N_fixed, map_phi(
+  #   NFI_data_sub, phi_per_scenario, metric.ref = "N", phi.ref = "fixed", 
+  #   "output/fig/analyses/map_phi_N_fixed.jpg"), format = "file"),
+  # tar_target(fig_map_phi_BA_fixed, map_phi(
+  #   NFI_data_sub, phi_per_scenario, metric.ref = "BA", phi.ref = "fixed", 
+  #   "output/fig/analyses/map_phi_BA_fixed.jpg"), format = "file"),
+  # 
+  # # Plot the biogeographic effect for each metric - phi combination
+  # tar_target(fig_biogeo_BAfixed, plot_biogeo_effect(
+  #   phi_per_scenario, "BA", "fixed", "output/fig/analyses/biogeo/BAfixed"), format = "file"),
+  # tar_target(fig_biogeo_BArate, plot_biogeo_effect(
+  #   phi_per_scenario, "BA", "rate", "output/fig/analyses/biogeo/BArate"), format = "file"),
+  # tar_target(fig_biogeo_Nfixed, plot_biogeo_effect(
+  #   phi_per_scenario, "N", "fixed", "output/fig/analyses/biogeo/Nfixed"), format = "file"),
+  # tar_target(fig_biogeo_Nrate, plot_biogeo_effect(
+  #   phi_per_scenario, "N", "rate", "output/fig/analyses/biogeo/Nrate"), format = "file"),
+  # 
   ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
   # -- Export plots ----
   ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
   
   # Plots for methods
   # -- Plot the map, and climate change on one plot
-  tar_target(fig_map_clim_dist, plot_map_clim_dist(
-    NFI_plots_selected, climate_dist_dflist,
-    "output/fig/methods/fig_map_clim_dist.jpg"), format = "file"),
+  # tar_target(fig_map_clim_dist, plot_map_clim_dist(
+  #   NFI_plots_selected, climate_dist_dflist,
+  #   "output/fig/methods/fig_map_clim_dist.jpg"), format = "file"),
 
   
   # Plots for supplementary material
   # - plot the resulting size distribution per succession and climate
-  tar_target(fig_distrib_succession, plot_succession_distrib(
-    NFI_succession, "output/fig/supplementary/fig_distrib.jpg"), format = "file"),
+  # tar_target(fig_distrib_succession, plot_succession_distrib(
+  #   NFI_succession, "output/fig/supplementary/fig_distrib.jpg"), format = "file"),
   # - Plot the prediction of disturbance coefficients from functional traits
-  tar_target(fig_disturb_coef, plot_disturb_coef(
-    intensity_file, traits_compiled, "output/fig/supplementary/fig_coef.jpg"), 
-    format = "file"),
+  # tar_target(fig_disturb_coef, plot_disturb_coef(
+  #   intensity_file, traits_compiled, "output/fig/supplementary/fig_coef.jpg"), 
+  #   format = "file"),
   # - Plot the distribution of species richness in each climate
   tar_target(fig_richness_distrib, plot_richness_distrib(
-    NFI_plots_selected, "output/fig/supplementary/fig_richness.jpg"), format = "file"),
+    NFI_plots_selected, "output/fig/supplementary/fig_richness.jpg"), format = "file")
   
   
   ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
   # -- Export tables ----
   ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
   
-  tar_target(table_funclim_species, export_table_funclim_species(
-    NFI_data_sub, NFI_plots_selected, traits_compiled, 
-    "output/tables/table_species.tex"), format = "file"), 
+  # tar_target(table_funclim_species, export_table_funclim_species(
+  #   NFI_data_sub, NFI_plots_selected, traits_compiled, 
+  #   "output/tables/table_species.tex"), format = "file") 
   
   
   ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
   # -- Chronosequence ----
   ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
   
-  # File for chronosequence
-  tar_target(file_chronoseq, "data/Chronosequence/data_chronoseq.csv", 
-             format = "file"), 
-  
-  # Extract climate and species composition for chronosequence data
-  tar_target(sp_and_clim_chronoseq, get_sp_and_clim_chronoseq(
-    NFI_plots_selected, NFI_data, climate_files, traits_compiled, file_chronoseq)), 
-  
-  # Plots to include in the simulation of chronosequences
-  tar_target(plots_selected_chronoseq, subset(sp_and_clim_chronoseq, age <= 30)), 
-  
-  # Build regional pool for each plot to simulate for chronoseq
-  tar_target(regional_pool_chronoseq, make_regional_pool_chronoseq(
-    plots_selected_chronoseq, coef_ba_reg)), 
-  
-  # Species distribution in each plot for chronoseq simulations
-  tar_target(species_distrib_chronoseq, get_species_distrib_chronoseq(
-    plots_selected_chronoseq, file_chronoseq)), 
-  
-  # Mean climate for the chronosequence analysis
-  tar_target(meanclimate_chronoseq, get_meanclimate_chronoseq(
-    NFI_plots_selected, NFI_data, NFI_climate)), 
-  
-  # Make simulations
-  # - Vector with length equal to the number of simulations to make
-  tar_target(ID.simulation_chronoseq, c(1:dim(plots_selected_chronoseq)[1])), 
-  # - Run simulations
-  tar_target(simulations_chronoseq, make_simulations_chronoseq(
-    plots_selected_chronoseq, species_distrib_chronoseq, species_list, species_mu,
-    meanclimate_chronoseq, disp_kernel, regional_pool_chronoseq, use_pool = TRUE, 
-    ID.simulation_chronoseq), pattern = map(ID.simulation_chronoseq), iteration = "list"),
-  # add georges_lag
-  tar_target(simulations_chronoseq_lag, make_simulations_chronoseq_lag(
-    plots_selected_chronoseq, species_distrib_chronoseq, species_list, species_mu,
-    meanclimate_chronoseq, disp_kernel, regional_pool_chronoseq, use_pool = TRUE, 
-    ID.simulation_chronoseq), pattern = map(ID.simulation_chronoseq), iteration = "list"),
-  # - Get simulation output
-  tar_target(sim_output_chronoseq, bind_rows(simulations_chronoseq, .id = NULL)), 
-  tar_target(sim_output_chronoseq_lag, bind_rows(simulations_chronoseq_lag, .id = NULL)), 
-  
-  # Plot output of the simulations
-  tar_target(fig_chronoseq, plot_chronosequence(
-    plots_selected_chronoseq, sim_output_chronoseq, sp_and_clim_chronoseq, 
-    traits_compiled, metrics = "div", 
-    "output/fig/supplementary/chronosequence/fig_chronoseq.pdf"), format = "file"), 
-  tar_target(fig_chronoseq_lag, plot_chronosequence(
-    plots_selected_chronoseq, sim_output_chronoseq_lag, sp_and_clim_chronoseq, 
-    traits_compiled, metrics = "div", 
-    "output/fig/supplementary/chronosequence/fig_chronoseq_lag.pdf"), format = "file"), 
-  # Maxime code
-  tar_target(plot_per_climate, split(plots_selected_chronoseq, 
-                                     plots_selected_chronoseq$climate
-                                     ) |> map(~ .x$plotcode)), 
-  tar_target(mean_plot_ID.simulation_chronoseq,
-             map_dbl(plot_per_climate, ~ .x[1]) |>
-               map_dbl(~ which(plots_selected_chronoseq$plotcode == .x))),
-  tar_target(mean_plot_lab.simulation_chronoseq,
-             map_dbl(plot_per_climate, ~ .x[1])),
-  tar_target(mean_distrib_chronoseq, getmeandistrib_chronoseq(
-    species_distrib_chronoseq, plot_per_climate, 
-    mean_plot_lab.simulation_chronoseq, species_list)), # rename this with the correct ID.simulation
-  tar_target(simulations_mean_chronoseq, make_simulations_chronoseq(
-    plots_selected_chronoseq, mean_distrib_chronoseq, species_list, species_mu,
-    meanclimate_chronoseq, disp_kernel, regional_pool_chronoseq, use_pool = TRUE,
-    mean_plot_ID.simulation_chronoseq), pattern = map(mean_plot_ID.simulation_chronoseq), iteration = "list"),
-  # add georges_lag
-  tar_target(simulations_chronoseq_meanlag, make_simulations_chronoseq_lag(
-    plots_selected_chronoseq, mean_distrib_chronoseq, species_list, species_mu,
-    meanclimate_chronoseq, disp_kernel, regional_pool_chronoseq, use_pool = TRUE, 
-    mean_plot_ID.simulation_chronoseq), pattern = map(mean_plot_ID.simulation_chronoseq), iteration = "list"),
-  tar_target(sim_mean_chronoseq, bind_rows(simulations_mean_chronoseq, .id = NULL)),
-  tar_target(fig_mean_chronoseq, plot_chronosequence(
-    plots_selected_chronoseq, sim_mean_chronoseq, sp_and_clim_chronoseq, 
-    traits_compiled, metrics = "traits", 
-    "output/fig/supplementary/chronosequence/fig_mean_chronoseq.pdf"), format = "file"),
-  tar_target(sim_chronoseq_meanlag, bind_rows(simulations_chronoseq_meanlag, .id = NULL)),
-  tar_target(fig_mean_chronoseq_lag, plot_chronosequence(
-    plots_selected_chronoseq, sim_chronoseq_meanlag, sp_and_clim_chronoseq, 
-    traits_compiled, metrics = "traits", 
-    "output/fig/supplementary/chronosequence/fig_mean_chronoseq_lag.pdf"), format = "file"), 
+  # # File for chronosequence
+  # tar_target(file_chronoseq, "data/Chronosequence/data_chronoseq.csv", 
+  #            format = "file"), 
+  # 
+  # # Extract climate and species composition for chronosequence data
+  # tar_target(sp_and_clim_chronoseq, get_sp_and_clim_chronoseq(
+  #   NFI_plots_selected, NFI_data, climate_files, traits_compiled, file_chronoseq)), 
+  # 
+  # # Plots to include in the simulation of chronosequences
+  # tar_target(plots_selected_chronoseq, subset(sp_and_clim_chronoseq, age <= 30)), 
+  # 
+  # # Build regional pool for each plot to simulate for chronoseq
+  # tar_target(regional_pool_chronoseq, make_regional_pool_chronoseq(
+  #   plots_selected_chronoseq, coef_ba_reg)), 
+  # 
+  # # Species distribution in each plot for chronoseq simulations
+  # tar_target(species_distrib_chronoseq, get_species_distrib_chronoseq(
+  #   plots_selected_chronoseq, file_chronoseq)), 
+  # 
+  # # Mean climate for the chronosequence analysis
+  # tar_target(meanclimate_chronoseq, get_meanclimate_chronoseq(
+  #   NFI_plots_selected, NFI_data, NFI_climate)), 
+  # 
+  # # Make simulations
+  # # - Vector with length equal to the number of simulations to make
+  # tar_target(ID.simulation_chronoseq, c(1:dim(plots_selected_chronoseq)[1])), 
+  # # - Run simulations
+  # tar_target(simulations_chronoseq, make_simulations_chronoseq(
+  #   plots_selected_chronoseq, species_distrib_chronoseq, species_list, species_mu,
+  #   meanclimate_chronoseq, disp_kernel, regional_pool_chronoseq, use_pool = TRUE, 
+  #   ID.simulation_chronoseq), pattern = map(ID.simulation_chronoseq), iteration = "list"),
+  # # add georges_lag
+  # tar_target(simulations_chronoseq_lag, make_simulations_chronoseq_lag(
+  #   plots_selected_chronoseq, species_distrib_chronoseq, species_list, species_mu,
+  #   meanclimate_chronoseq, disp_kernel, regional_pool_chronoseq, use_pool = TRUE, 
+  #   ID.simulation_chronoseq), pattern = map(ID.simulation_chronoseq), iteration = "list"),
+  # # - Get simulation output
+  # tar_target(sim_output_chronoseq, bind_rows(simulations_chronoseq, .id = NULL)), 
+  # tar_target(sim_output_chronoseq_lag, bind_rows(simulations_chronoseq_lag, .id = NULL)), 
+  # 
+  # # Plot output of the simulations
+  # tar_target(fig_chronoseq, plot_chronosequence(
+  #   plots_selected_chronoseq, sim_output_chronoseq, sp_and_clim_chronoseq, 
+  #   traits_compiled, metrics = "div", 
+  #   "output/fig/supplementary/chronosequence/fig_chronoseq.pdf"), format = "file"), 
+  # tar_target(fig_chronoseq_lag, plot_chronosequence(
+  #   plots_selected_chronoseq, sim_output_chronoseq_lag, sp_and_clim_chronoseq, 
+  #   traits_compiled, metrics = "div", 
+  #   "output/fig/supplementary/chronosequence/fig_chronoseq_lag.pdf"), format = "file"), 
+  # # Maxime code
+  # tar_target(plot_per_climate, split(plots_selected_chronoseq, 
+  #                                    plots_selected_chronoseq$climate
+  #                                    ) |> map(~ .x$plotcode)), 
+  # tar_target(mean_plot_ID.simulation_chronoseq,
+  #            map_dbl(plot_per_climate, ~ .x[1]) |>
+  #              map_dbl(~ which(plots_selected_chronoseq$plotcode == .x))),
+  # tar_target(mean_plot_lab.simulation_chronoseq,
+  #            map_dbl(plot_per_climate, ~ .x[1])),
+  # tar_target(mean_distrib_chronoseq, getmeandistrib_chronoseq(
+  #   species_distrib_chronoseq, plot_per_climate, 
+  #   mean_plot_lab.simulation_chronoseq, species_list)), # rename this with the correct ID.simulation
+  # tar_target(simulations_mean_chronoseq, make_simulations_chronoseq(
+  #   plots_selected_chronoseq, mean_distrib_chronoseq, species_list, species_mu,
+  #   meanclimate_chronoseq, disp_kernel, regional_pool_chronoseq, use_pool = TRUE,
+  #   mean_plot_ID.simulation_chronoseq), pattern = map(mean_plot_ID.simulation_chronoseq), iteration = "list"),
+  # # add georges_lag
+  # tar_target(simulations_chronoseq_meanlag, make_simulations_chronoseq_lag(
+  #   plots_selected_chronoseq, mean_distrib_chronoseq, species_list, species_mu,
+  #   meanclimate_chronoseq, disp_kernel, regional_pool_chronoseq, use_pool = TRUE, 
+  #   mean_plot_ID.simulation_chronoseq), pattern = map(mean_plot_ID.simulation_chronoseq), iteration = "list"),
+  # tar_target(sim_mean_chronoseq, bind_rows(simulations_mean_chronoseq, .id = NULL)),
+  # tar_target(fig_mean_chronoseq, plot_chronosequence(
+  #   plots_selected_chronoseq, sim_mean_chronoseq, sp_and_clim_chronoseq, 
+  #   traits_compiled, metrics = "traits", 
+  #   "output/fig/supplementary/chronosequence/fig_mean_chronoseq.pdf"), format = "file"),
+  # tar_target(sim_chronoseq_meanlag, bind_rows(simulations_chronoseq_meanlag, .id = NULL)),
+  # tar_target(fig_mean_chronoseq_lag, plot_chronosequence(
+  #   plots_selected_chronoseq, sim_chronoseq_meanlag, sp_and_clim_chronoseq, 
+  #   traits_compiled, metrics = "traits", 
+  #   "output/fig/supplementary/chronosequence/fig_mean_chronoseq_lag.pdf"), format = "file"), 
   
   
   ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -371,36 +376,36 @@ list(
   ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
   
   
-  # Format climate data for chronosequence analysis
-  tar_target(data_clim_SDM, format_clim_SDM(climate_dist_dflist, NFI_plots_selected)), 
+  # # Format climate data for chronosequence analysis
+  # tar_target(data_clim_SDM, format_clim_SDM(climate_dist_dflist, NFI_plots_selected)), 
   
   # Plot temporal change in climate
-  tar_target(fig_clim_SDM, plot_climate_SDM(
-    data_clim_SDM, "output/fig/supplementary/SDM/fig_clim_SDM.jpg"), format = "file"), 
+  # tar_target(fig_clim_SDM, plot_climate_SDM(
+  #   data_clim_SDM, "output/fig/supplementary/SDM/fig_clim_SDM.jpg"), format = "file"), 
+  # 
+  # # Coefficients of the SDM to predict regional basal area from climate
+  # tar_target(file_coef_SDM, "data/Static_model/coef_reg_ba.csv", format = "file"), 
+  # tar_target(coef_SDM, fread(file_coef_SDM)), 
+  # 
+  # # Calculate regional basal area from climate
+  # tar_target(reg_ba_SDM, get_reg_ba_SDM(
+  #   clim_pca, data_clim_SDM, coef_SDM, species_list)), 
+  # 
+  # # Calculate species compositon at each scenario and timestep
+  # tar_target(sp.composition_SDM, get_sp.composition_SDM(
+  #   traits_compiled, reg_ba_SDM)), 
+  # 
+  # # Plot change in species composition calculated from SDM
+  # tar_target(fig_sp.composition_SDM, plot_sp.composition_SDM(
+  #   sp.composition_SDM, "output/fig/supplementary/SDM/fig_spcompo_SDM.jpg"), format = "file") 
   
-  # Coefficients of the SDM to predict regional basal area from climate
-  tar_target(file_coef_SDM, "data/Static_model/coef_reg_ba.csv", format = "file"), 
-  tar_target(coef_SDM, fread(file_coef_SDM)), 
-  
-  # Calculate regional basal area from climate
-  tar_target(reg_ba_SDM, get_reg_ba_SDM(
-    clim_pca, data_clim_SDM, coef_SDM, species_list)), 
-  
-  # Calculate species compositon at each scenario and timestep
-  tar_target(sp.composition_SDM, get_sp.composition_SDM(
-    traits_compiled, reg_ba_SDM)), 
-  
-  # Plot change in species composition calculated from SDM
-  tar_target(fig_sp.composition_SDM, plot_sp.composition_SDM(
-    sp.composition_SDM, "output/fig/supplementary/SDM/fig_spcompo_SDM.jpg"), format = "file"), 
-  
-  # Calculate phi per variable and per climate
-  tar_target(phi_per_climate_SDM, get_phi_per_scenario_SDM(
-    sp.composition_SDM, data_pool)), 
-  
-  # Compare phi in simulations vs in SDM
-  tar_target(fig_phi_simulations_vs_SDM, plot_phi_simulations_vs_SDM(
-    phi_per_climate_SDM, phi_per_scenario, "output/fig/supplementary/SDM/fig_phi_SDM.jpg"), 
-    format = "file")
+  # # Calculate phi per variable and per climate
+  # tar_target(phi_per_climate_SDM, get_phi_per_scenario_SDM(
+  #   sp.composition_SDM, data_pool)), 
+  # 
+  # # Compare phi in simulations vs in SDM
+  # tar_target(fig_phi_simulations_vs_SDM, plot_phi_simulations_vs_SDM(
+  #   phi_per_climate_SDM, phi_per_scenario, "output/fig/supplementary/SDM/fig_phi_SDM.jpg"), 
+  #   format = "file")
 )
 

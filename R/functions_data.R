@@ -1318,11 +1318,14 @@ get_delta = function(data_pool, data_nopool, timerange = c(1, 110)){
   data_delta = data %>%
     filter(time %in% timerange) %>%
     mutate(time_cat = ifelse(time == min(timerange), "tmin", "tmax")) %>%
-    dplyr::select(- time) %>%
+    dplyr::select(- time, -ID.simulation) %>%
     pivot_wider(names_from = "time_cat", values_from = "value") %>%
+    mutate(Delta = tmax - tmin) %>%
+    dplyr::select(-tmin, -tmax) %>%
+    pivot_wider(names_from = "ssp", values_from = "Delta") %>%
     left_join(data_range, by = c("metric", "variable")) %>%
-    mutate(delta = (tmax - tmin)/range*100) %>%
-    dplyr::select(-range)
+    mutate(delta = (ssp585 - ssp126)/range*100) %>%
+    dplyr::select(-range, -ssp585, -ssp126)
     
   
   # Return output

@@ -225,33 +225,7 @@ list(
   # Calculate community change for each scenario
   tar_target(delta, get_delta(data_pool, data_nopool, timerange = c(1, 110))),
 
-  # # Calculate phi for each scenario
-  # tar_target(phi_per_scenario, get_phi_per_scenario(data_pool, data_nopool)),
-  # 
-  # # Map phi for different configurations (way to express phi and abundance metric)
-  # tar_target(fig_map_phi_N_rate, map_phi(
-  #   NFI_data_sub, phi_per_scenario, metric.ref = "N", phi.ref = "rate", 
-  #   "output/fig/analyses/map_phi_N_rate.jpg"), format = "file"),
-  # tar_target(fig_map_phi_BA_rate, map_phi(
-  #   NFI_data_sub, phi_per_scenario, metric.ref = "BA", phi.ref = "rate", 
-  #   "output/fig/analyses/map_phi_BA_rate.jpg"), format = "file"),
-  # tar_target(fig_map_phi_N_fixed, map_phi(
-  #   NFI_data_sub, phi_per_scenario, metric.ref = "N", phi.ref = "fixed", 
-  #   "output/fig/analyses/map_phi_N_fixed.jpg"), format = "file"),
-  # tar_target(fig_map_phi_BA_fixed, map_phi(
-  #   NFI_data_sub, phi_per_scenario, metric.ref = "BA", phi.ref = "fixed", 
-  #   "output/fig/analyses/map_phi_BA_fixed.jpg"), format = "file"),
-  # 
-  # # Plot the biogeographic effect for each metric - phi combination
-  # tar_target(fig_biogeo_BAfixed, plot_biogeo_effect(
-  #   phi_per_scenario, "BA", "fixed", "output/fig/analyses/biogeo/BAfixed"), format = "file"),
-  # tar_target(fig_biogeo_BArate, plot_biogeo_effect(
-  #   phi_per_scenario, "BA", "rate", "output/fig/analyses/biogeo/BArate"), format = "file"),
-  # tar_target(fig_biogeo_Nfixed, plot_biogeo_effect(
-  #   phi_per_scenario, "N", "fixed", "output/fig/analyses/biogeo/Nfixed"), format = "file"),
-  # tar_target(fig_biogeo_Nrate, plot_biogeo_effect(
-  #   phi_per_scenario, "N", "rate", "output/fig/analyses/biogeo/Nrate"), format = "file"),
-  # 
+  
   ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
   # -- Export plots ----
   ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -262,6 +236,14 @@ list(
     NFI_plots_selected, climate_dist_dflist,
     "output/fig/methods/fig_map_clim_dist.jpg"), format = "file"),
 
+  # Map delta
+  tar_target(fig_map_delta, map_delta(
+    NFI_data_sub, delta, metric.ref = "BA", 
+    "output/fig/analyses/map_delta_ba.jpg"), format = "file"),
+  
+  # Plot the biogeographic effect for each metric - phi combination
+  tar_target(fig_biogeo, plot_biogeo_effect(
+    NFI_data_sub, delta, "BA", "output/fig/analyses"), format = "file"),
   
   # Plots for supplementary material
   # - plot the resulting size distribution per succession and climate

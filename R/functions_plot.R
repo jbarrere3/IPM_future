@@ -193,7 +193,7 @@ plot_map_clim_dist = function(NFI_plots_selected, climate_dist_dflist, file.out)
   
   
   # Identify the duration of simulations
-  t.sim = dim(climate_dist_dflist[[1]][[1]]$climate)[1]
+  t.sim = dim(climate_dist_dflist[[1]][[1]][[1]]$climate)[1]
   
   # Periods simulated and plotted
   years.sim = c(1991:2100)
@@ -217,7 +217,8 @@ plot_map_clim_dist = function(NFI_plots_selected, climate_dist_dflist, file.out)
     
     # Initialize the data set for period j
     list.out[[j]] = expand.grid(plotcode = names(climate_dist_dflist), 
-                                ssp = names(climate_dist_dflist[[1]]),
+                                rep = names(climate_dist_dflist[[1]]), 
+                                ssp = names(climate_dist_dflist[[1]][[1]]),
                                 freq.storm = 0, freq.fire = 0, sgdd = NA, wai = NA)
     
     # Loop on all plotcode - ssp combination
@@ -225,7 +226,7 @@ plot_map_clim_dist = function(NFI_plots_selected, climate_dist_dflist, file.out)
       
       # Disturbance dataframe corresponding to simulation i
       dist.df.ij = climate_dist_dflist[[
-        list.out[[j]]$plotcode[i]]][[list.out[[j]]$ssp[i]]]$disturbance %>%
+        list.out[[j]]$plotcode[i]]][[list.out[[j]]$rep[i]]][[list.out[[j]]$ssp[i]]]$disturbance %>%
         filter(t %in% time.j)
       
       # Count the occurrences of storm 
@@ -239,10 +240,10 @@ plot_map_clim_dist = function(NFI_plots_selected, climate_dist_dflist, file.out)
       # Average climate for plotcode i and period j
       # - sgdd
       list.out[[j]]$sgdd[i] = mean(climate_dist_dflist[[
-        list.out[[j]]$plotcode[i]]][[list.out[[j]]$ssp[i]]]$climate$sgdd[time.j])
+        list.out[[j]]$plotcode[i]]][[list.out[[j]]$rep[i]]][[list.out[[j]]$ssp[i]]]$climate$sgdd[time.j])
       # - wai
       list.out[[j]]$wai[i] = mean(climate_dist_dflist[[
-        list.out[[j]]$plotcode[i]]][[list.out[[j]]$ssp[i]]]$climate$wai[time.j])
+        list.out[[j]]$plotcode[i]]][[list.out[[j]]$rep[i]]][[list.out[[j]]$ssp[i]]]$climate$wai[time.j])
       
     }
     

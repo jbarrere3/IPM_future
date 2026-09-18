@@ -37,7 +37,7 @@ options(tidyverse.quiet = TRUE, clustermq.scheduler = "multiprocess",
        future.globals.maxSize= 1048576000)
 tar_option_set(packages = packages.in,
                memory = "transient")
-future::plan(future::multisession, workers = 16)
+future::plan(future::multisession, workers = 20)
 set.seed(2)
 
 
@@ -74,7 +74,7 @@ list(
   # Filter data based on species present in IPM and climate
   # -- select NFI plots
   tar_target(NFI_plots_selected, select_NFI_plots(
-    NFI_data, NFI_climate, nclim = 10, nplots.per.clim = 20)), 
+    NFI_data, NFI_climate, nclim = 10, nplots.per.clim = 500)), 
   # -- Set number of repetitions for regional pool and disturbances
   tar_target(nrep, 5),
   # -- subset all data
@@ -216,15 +216,15 @@ list(
   tar_target(sim_output_pool, bind_rows(simulations_pool, .id = NULL)),
   tar_target(sim_output_nopool, bind_rows(simulations_nopool, .id = NULL)),
 
-  # # Format the output of simulations with and without pool
-  # tar_target(data_pool, format_sim_output(
-  #   sim_output_pool, traits_compiled, simul_list, NFI_succession)),
-  # tar_target(data_nopool, format_sim_output(
-  #   sim_output_nopool, traits_compiled, simul_list, NFI_succession)),
-  # 
-  # # Calculate community change for each scenario
-  # tar_target(delta, get_delta(data_pool, data_nopool, timerange = c(1, 110))),
-  
+  # Format the output of simulations with and without pool
+  tar_target(data_pool, format_sim_output(
+    sim_output_pool, traits_compiled, simul_list, NFI_succession)),
+  tar_target(data_nopool, format_sim_output(
+    sim_output_nopool, traits_compiled, simul_list, NFI_succession)),
+
+  # Calculate community change for each scenario
+  tar_target(delta, get_delta(data_pool, data_nopool, timerange = c(1, 110))),
+
   # # Calculate phi for each scenario
   # tar_target(phi_per_scenario, get_phi_per_scenario(data_pool, data_nopool)),
   # 
@@ -258,9 +258,9 @@ list(
   
   # Plots for methods
   # -- Plot the map, and climate change on one plot
-  # tar_target(fig_map_clim_dist, plot_map_clim_dist(
-  #   NFI_plots_selected, climate_dist_dflist,
-  #   "output/fig/methods/fig_map_clim_dist.jpg"), format = "file"),
+  tar_target(fig_map_clim_dist, plot_map_clim_dist(
+    NFI_plots_selected, climate_dist_dflist,
+    "output/fig/methods/fig_map_clim_dist.jpg"), format = "file"),
 
   
   # Plots for supplementary material
@@ -273,7 +273,7 @@ list(
   #   format = "file"),
   # - Plot the distribution of species richness in each climate
   tar_target(fig_richness_distrib, plot_richness_distrib(
-    NFI_plots_selected, "output/fig/supplementary/fig_richness.jpg"), format = "file")
+    NFI_plots_selected, "output/fig/supplementary/fig_richness.jpg"), format = "file"),
   
   
   ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -284,6 +284,31 @@ list(
   #   NFI_data_sub, NFI_plots_selected, traits_compiled, 
   #   "output/tables/table_species.tex"), format = "file") 
   
+  ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  # -- Regional pool with future climate ----
+  ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  
+  # Make future regional pool
+  tar_target(regional_pool_585, make_regional_pool_585(
+    NFI_plots_selected, NFI_forest_cover, NFI_climate, coef_ba_reg, nrep)), 
+  # Subset simul list
+  tar_target(simul_list_585, subset(simul_list, ssp == "ssp585")), 
+  # Create table listing all species to simulate
+  tar_target(species_list_585, make_species_list(
+    NFI_data_sub, NFI_plots_selected, regional_pool_585)),
+  # -- Vector from 1 to number of species to make (useful for parallel computing)
+  tar_target(ID.species_585, species_list_585$ID.species),
+  # # -- Make species via branching over ID.species
+  tar_target(species_mu_585, make_species_mu_rds(
+    species_list_585, climate_margins, disturb_coef_ext, new_fit_list, ID.species_585),
+    pattern = map(ID.species_585), iteration = "vector", format = "file"),
+  # Vector of simulation ID
+  tar_target(ID_simulation_585, c(1:dim(simul_list_585)[1])),
+  # -- Make simulations with regional pool
+  tar_target(simulations_pool_585, make_simulations_585(
+    species_distrib, species_mu_585, species_list_585, climate_dist_dflist_ext,
+    regional_pool_585, simul_list_585, disp_kernel, use_pool = TRUE, ID_simulation_585),
+    pattern = map(ID_simulation_585), iteration = "list")
   
   ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
   # -- Chronosequence ----

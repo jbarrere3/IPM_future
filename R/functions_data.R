@@ -453,8 +453,8 @@ select_NFI_plots = function(NFI_data, NFI_climate,
   
   # Get mean climate per plot
   meanclim = NFI_climate %>% dplyr::select(plotcode)
-  meanclim$sgdd = rowMeans(NFI_climate %>% dplyr::select(grep("sgdd", colnames(.))))  
-  meanclim$wai = rowMeans(NFI_climate %>% dplyr::select(grep("wai", colnames(.))))  
+  meanclim$sgdd = rowMeans(NFI_climate[, paste0("hist_sgdd_", c(1991:2000))])  
+  meanclim$wai = rowMeans(NFI_climate[, paste0("hist_wai_", c(1991:2000))])  
   
   # Make a pca
   pca <- prcomp((meanclim %>% dplyr::select(-plotcode)), 
@@ -1282,7 +1282,7 @@ format_sim_output = function(sim_output, traits_compiled, simul_list, NFI_succes
     left_join(simul_list, by = "ID.simulation") %>%
     left_join(NFI_succession[, c("plotcode", "dqm_class")], by = "plotcode") %>%
     dplyr::select(ID.simulation, plotcode, metric, time, climate, dqm_class, ssp, 
-                  dist, pca1, H, cwm1, cwm2, FD) %>%
+                  dist, pca1, , rep, H, cwm1, cwm2, FD) %>%
     gather(key = "variable", value = "value", "H", "FD", "cwm1", "cwm2") %>%
     drop_na()
   
@@ -1294,59 +1294,7 @@ format_sim_output = function(sim_output, traits_compiled, simul_list, NFI_succes
 } 
 
 
-#' Function to compile the simulation results and calculate phi depending on scenarios 
-#' @param data_pool Results of simulations with regional pool
-#' @param data_nopool Results of simulations without regional pool
-get_phi_per_scenario = function(data_pool, data_nopool){
-  
-  # Calculate the range of each composition variable per climate
-  data_range = data_pool %>% 
-    filter(time == 70 & ssp == "ssp126" & dist == "nodist") %>%
-    dplyr::select(plotcode, variable, metric, value) %>%
-    distinct() %>%
-    group_by(variable, metric) %>%
-    summarize(q05 = quantile(value, 0.05, na.rm = TRUE), 
-              q95 = quantile(value, 0.95, na.rm = TRUE)) %>%
-    mutate(range = abs(q95 - q05)) %>%
-    dplyr::select(variable, metric, range)
-  
-  # Calculate phi per scenario
-  out = rbind(data_pool %>% mutate(pool = "pool"), 
-              data_nopool %>% mutate(pool = "nopool")) %>%
-    # Merge ssp and dist scenario and remove useless ones
-    mutate(sspdist = paste0(ssp, "_", dist)) %>%
-    dplyr::select(-ssp, -dist, -ID.simulation) %>%
-    # Calculate difference between scenarios
-    pivot_wider(names_from = sspdist, values_from = value) %>%
-    mutate(dist = ssp585_dist - ssp126_nodist, 
-           nodist = ssp585_nodist - ssp126_nodist) %>%
-    dplyr::select(-ssp585_dist, -ssp126_nodist, -ssp585_nodist) %>%
-    pivot_longer(names_to = "dist.scenario", values_to = "diff", 
-                 all_of(c("dist", "nodist"))) %>%
-    # Add initial diff
-    left_join((.) %>% filter(time == min(.$time)) %>%
-                dplyr::select(plotcode, variable, pool, dist.scenario, metric, 
-                              diff.init = diff), 
-              by = c("plotcode", "variable", "dist.scenario", "metric", "pool")) %>%
-    # Add final diff
-    left_join((.) %>% filter(time == max(.$time)) %>%
-                dplyr::select(plotcode, variable, pool, dist.scenario, metric, 
-                              diff.final = diff), 
-              by = c("plotcode", "variable", "dist.scenario", "metric", "pool")) %>%
-    # Calculate phi
-    group_by(plotcode, climate, dqm_class, pca1, variable, dist.scenario, metric, pool) %>%
-    summarize(phi = mean(diff), 
-              phi.rate = (mean(diff.final) - mean(diff.init))/n()) %>%
-    ungroup() %>%
-    # Add phi calculated as a percentage of the range observed
-    left_join(data_range, by = c("variable", "metric")) %>%
-    mutate(phi.percent = phi/range*100, 
-           phi.rate.percent = phi.rate/range*100)
-  
-  # Return output
-  return(out)
-  
-}
+
 
 #' Function to calculate community change over time
 #' @param data_pool Results of simulations with regional pool
@@ -1359,7 +1307,7 @@ get_delta = function(data_pool, data_nopool, timerange = c(1, 110)){
                    .id = "pool") 
   # Calculate the range of community change per metric
   data_range = data %>%
-    group_by(plotcode, metric, variable) %>%
+    group_by(plotcode, metric, variable, rep) %>%
     summarize(min = min(value, na.rm = TRUE), 
               max = max(value, na.rm = TRUE)) %>%
     mutate(diff = max - min) %>%
@@ -1383,7 +1331,254 @@ get_delta = function(data_pool, data_nopool, timerange = c(1, 110)){
 }
 
 
+#' Build the regional pool of the plots selected but with a future climate
+#' @param NFI_plots_selected dataframe listing the NFI plots selected for simulations
+#' @param NFI_forest_cover Proportion of forest cover in a 1km radius around each plot
+#' @param coef_ba_reg Coefficients to calculate the regional basal area
+#' @param nrep Number of repetitions
+make_regional_pool_585 = function(
+    NFI_plots_selected, NFI_forest_cover, NFI_climate, coef_ba_reg, nrep){
+  
+  # Get future climate per plot
+  meanclim = NFI_climate %>% dplyr::select(plotcode)
+  meanclim$sgdd = rowMeans(NFI_climate[, paste0("hist_sgdd_", c(1991:2000))])   
+  meanclim$wai = rowMeans(NFI_climate[, paste0("hist_wai_", c(1991:2000))])  
+  
+  # Get future climate per plot
+  futureclim = NFI_climate %>% dplyr::select(plotcode)
+  futureclim$sgdd = rowMeans(NFI_climate %>% dplyr::select(
+    which(colnames(.) %in% paste0("ssp585_sgdd_", c(2055:2064)))))  
+  futureclim$wai = rowMeans(NFI_climate %>% dplyr::select(
+    which(colnames(.) %in% paste0("ssp585_wai_", c(2055:2064)))))  
+  
+  # Make a pca
+  pca <- prcomp((meanclim %>% dplyr::select(-plotcode)), 
+                center = T, scale = T)
+  
+  # Add pca coordinate to the future climate dataframe
+  futureclim$pca1 = predict(pca, newdata = futureclim %>% dplyr::select(sgdd, wai))[, 1]
+  
+  # Initialize dataset for reg ba calculation
+  data.in = expand.grid(plotcode = NFI_plots_selected$plotcode, 
+                        species = coef_ba_reg$species) %>%
+    # Add information on climate, parameters and land cover
+    left_join(NFI_plots_selected %>% dplyr::select(-pca1), by = "plotcode") %>%
+    left_join(futureclim %>% dplyr::select(plotcode, pca1), by = "plotcode") %>%
+    left_join(coef_ba_reg, by = "species") %>%
+    left_join(NFI_forest_cover, by = "plotcode") %>%
+    # In case forest cover is missing for some plots, replace by its average
+    mutate(forest_cov_1km = ifelse(is.na(forest_cov_1km), 0.6, forest_cov_1km)) %>%
+    # Calculate regional basal area per species based on parameters
+    mutate(ba_reg_th = a*exp(-(pca1 - b)^2/c), 
+           ba_reg_th = ifelse(is.na(ba_reg_th), 0, ba_reg_th)) %>% 
+    # Calculate probability of sampling for each species per plotcode
+    group_by(plotcode) %>%
+    mutate(prob = ba_reg_th/sum(ba_reg_th, na.rm = TRUE)) %>% ungroup() %>%
+    # Correct regional basal area by forest cover
+    mutate(ba_reg = ba_reg_th*forest_cov_1km)
+  
+  # Initialize output
+  out = data.frame(plotcode = character(0), rep = character(0), 
+                   species = character(0), ba_reg = character(0))
+  
+  # Loop on all repetitions
+  for(r in 1:nrep){
+    
+    # Set random seed
+    set.seed(r)
+    
+    # Loop on all plotcodes
+    for(i in 1:length(unique(data.in$plotcode))){
+      
+      # Subset dataset
+      # - right plotcode
+      data.i = data.in %>% filter(plotcode == unique(data.in$plotcode)[i])
+      
+      # Sort species
+      sp.i = unique(sample(x = data.i$species, size = 1 + rpois(1, unique(data.i$lambda)), 
+                           replace = FALSE, prob = data.i$prob))
+      
+      # Complete the output dataset
+      out = rbind(out, data.i %>% filter(species %in% sp.i) %>% 
+                    mutate(rep = paste0("rep", r)) %>%
+                    dplyr::select(plotcode, rep, species, ba_reg))
+      
+    }
+  }
+  
+  
+  # Return output
+  return(out)
+  
+}
 
+#' Function to make a species object, save it as rds and return filename
+#' @param species_list table containing all species to create
+#' @param climate_margins climatic margins for each climate (list)
+#' @param disturb_coef_ext Extension of the disturb_coef data of matreex for all species
+#' @param new_fit_list New demographic parameters
+#' @param ID.species.in ID of the species to make in species_list
+make_species_mu_rds_585 = function(species_list, climate_margins, disturb_coef_ext, 
+                               new_fit_list, ID.species.in){
+  
+  # Identify the species and case study for iteration i
+  species.in = gsub("\\ ", "\\_", species_list$species[ID.species.in])
+  climate.in = species_list$climate[ID.species.in]
+  
+  # Load demographic parameter of the species 
+  fit.in = new_fit_list[[species.in]]
+  
+  # From clim.in, build the margins file for iteration i
+  margins.in = climate_margins[[climate.in]]
+  
+  # Make the mu matrix
+  mu.in <- make_mu_gr(
+    species = species.in, fit = fit.in, climate = margins.in, 
+    mesh = c(m = 700, L = 90, U = get_maxdbh(fit.in) * 1.1),
+    verbose = TRUE, stepMu = 0.001)
+  
+  # Create species object from random distribution
+  sp.in = species(IPM = mu.in, init_pop = def_initBA(20),
+                  harvest_fun = def_harv)
+  # Update disturbance function
+  sp.in$disturb_fun = disturb_fun
+  # Add disturbance coefficients
+  sp.in$disturb_coef  <- filter(disturb_coef_ext, species == species.in)
+  
+  # Name of the file to save
+  file.in = paste0("rds/", climate.in, "/species_mu_585/", species.in, ".rds")
+  
+  # Save species object in a rdata
+  create_dir_if_needed(file.in)
+  saveRDS(sp.in, file.in)
+  
+  # Return output list
+  return(file.in)
+  
+}
+
+#' Make mu simulations with dist and changing climate
+#' @param species_distrib List of species distribution (per plot)
+#' @param species_list df with information on all species object
+#' @param species_mu vector containing all species mu rds files created
+#' @param climate_dist_dflist list of climate and disturbance df
+#' @param simul_list df listing simulations to perform
+#' @param disp_kernel dispersal kernel for each species
+#' @param use_pool boolean indicating whether the regional pool should be included 
+#'                 in the simulation or not
+#' @param ID.simulation ID in simul_dist of the simulation to perform
+make_simulations_585 = function(
+    species_distrib, species_mu, species_list, climate_dist_dflist,
+    regional_pool, simul_list, disp_kernel, use_pool, ID.simulation){
+  
+  # Print simulation ID
+  print(ID.simulation)
+  
+  # Identify the plotcode, climate, ssp, etc
+  plot.in = simul_list$plotcode[ID.simulation]
+  ssp.in = simul_list$ssp[ID.simulation]
+  clim.in = simul_list$climate[ID.simulation]
+  dist.in = simul_list$dist[ID.simulation]
+  rep.in = simul_list$rep[ID.simulation]
+  
+  
+  # Extract climate, disturbance and distributions
+  climate.in = climate_dist_dflist[[plot.in]][[rep.in]][[ssp.in]]$climate
+  disturbance.in = climate_dist_dflist[[plot.in]][[rep.in]][[ssp.in]]$disturbance
+  distributions.in = species_distrib[[plot.in]]
+  
+  # Final list of species based on regional pool and distribution.in
+  sp.reg = filter(regional_pool, plotcode == plot.in & rep == rep.in)$species
+  sp.tot = unique(c(names(distributions.in), sp.reg))
+  # Compile to make a regional pool
+  reg.pool.in = (data.frame(species = sp.tot) %>%
+                   left_join(filter(regional_pool, plotcode == plot.in & rep == rep.in), 
+                             by = "species") %>%
+                   mutate(ba_reg = ifelse(is.na(ba_reg), 0, ba_reg)))$ba_reg
+  names(reg.pool.in) = sp.tot
+  # Vector of migration rates
+  mig.rate.in = 1 - left_join(data.frame(species = sp.tot), disp_kernel, 
+                              by = "species")$p30
+  names(mig.rate.in) = sp.tot
+  
+  # Initialize list of species
+  list.sp = vector(mode = "list", length = length(sp.tot))
+  names(list.sp) = paste0("mu_", sp.tot)
+  
+  # Loop on all species of the list
+  for(i in 1:length(names(list.sp))){
+    
+    # Get the index of mu from species list
+    id.mu = subset(species_list, species == sp.tot[i] & climate == clim.in)$ID.species
+    
+    # Read the species
+    list.sp[[i]] = readRDS(species_mu[id.mu])
+    
+    # Convert the mesh from basal area per ha to number of tree per ha
+    # -- mesh in basal area (m2)
+    mesh_ba.i = pi*(list.sp[[i]]$IPM$mesh/2000)^2
+    # -- If species is present in the data (and not only in reg pool)
+    if(sp.tot[i] %in% names(distributions.in)){
+      # -- divide size distribution in basal area per m2 by mesh in m2
+      distrib.i = distributions.in[[sp.tot[i]]]/mesh_ba.i
+      # -- Set na value to 0 (delay)
+      distrib.i[which(is.na(distrib.i))] = 0
+      # -- If species only in regional pool, set distribution to 0
+    } else {
+      distrib.i = 0*mesh_ba.i
+    }
+    
+    # Use the new distribution in N/ha to initialize the population 
+    list.sp[[i]]$init_pop <- def_init_k(distrib.i)
+    
+  }
+  
+  # Make forest
+  # - With the regional pool
+  if(use_pool){
+    forest.in = forest(species = list.sp, harv_rules = c(
+      Pmax = 0.25, dBAmin = 3, freq = 1, alpha = 1), 
+      regional_abundance = reg.pool.in, migration_rate = mig.rate.in)
+  }
+  # - Without the regional pool
+  if(!use_pool){
+    forest.in = forest(species = list.sp[paste0("mu_", names(distributions.in))], 
+                       harv_rules = c(Pmax = 0.25, dBAmin = 3, freq = 1, alpha = 1), 
+                       migration_rate = mig.rate.in[names(distributions.in)])
+  }
+  
+  
+  # Different code depending on whether the scenario includes disturbances or not
+  if(dist.in == "dist"){
+    # Run simulation with a changing climate and disturbance
+    try(sim.in <- sim_deter_forest(
+      forest.in, tlim = max(climate.in$t), climate = climate.in, 
+      equil_dist = max(climate.in$t),  equil_time = max(climate.in$t), 
+      verbose = TRUE, correction = "cut", disturbance = disturbance.in), silent = TRUE)
+  } else {
+    # Run simulation with a changing climate but no disturbance
+    try(sim.in <- sim_deter_forest(
+      forest.in, tlim = max(climate.in$t), climate = climate.in, 
+      equil_dist = max(climate.in$t),  equil_time = max(climate.in$t), 
+      verbose = TRUE, correction = "cut"), silent = TRUE)
+  }
+  
+  # If the simulation failed, return an empty object
+  if(!exists("sim.in")) sim.in = list()
+  # Otherwise, make final formatting to keep only essential information
+  else sim.in = sim.in %>%
+    filter(!equil & var %in% c("BAsp", "N")) %>%
+    mutate(ID.simulation = simul_list$ID.simulation[ID.simulation]) %>% 
+    dplyr::select(ID.simulation, species, time, var, value) %>%
+    spread(key = "var", value = "value") %>%
+    rename(BA = BAsp)
+  
+  # Return output list
+  return(sim.in)
+  
+  
+  
+}
 
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

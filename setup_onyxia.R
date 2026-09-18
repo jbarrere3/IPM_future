@@ -3,6 +3,7 @@
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 # Install jags
+system("sudo apt-get update", wait = TRUE)
 system("sudo apt-get install jags", wait = TRUE)
 
 # Install separately packages relying on github for installation
@@ -78,3 +79,6 @@ if (!dir.exists("/home/onyxia/work/IPM_future/data")) {
   unzip("data_impfuture.zip", exdir = "/home/onyxia/work/IPM_future")
   cat("Done!\n")
 }
+
+# Zip the directory
+system("zip -r ipm_future.zip /IPM_future")

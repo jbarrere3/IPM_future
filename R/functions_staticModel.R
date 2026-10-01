@@ -25,14 +25,14 @@ format_clim_SDM = function(climate_dist_dflist, NFI_plots_selected){
     # Extract climatic data for each plot 
     df.i = rbind(data.frame(plotcode = names(climate_dist_dflist)[i], 
                             ssp = "ssp126", 
-                            t = climate_dist_dflist[[i]]$ssp126$climate$t, 
-                            sgdd = climate_dist_dflist[[i]]$ssp126$climate$sgdd, 
-                            wai = climate_dist_dflist[[i]]$ssp126$climate$wai), 
+                            t = climate_dist_dflist[[i]]$rep1$ssp126$climate$t, 
+                            sgdd = climate_dist_dflist[[i]]$rep1$ssp126$climate$sgdd, 
+                            wai = climate_dist_dflist[[i]]$rep1$ssp126$climate$wai), 
                  data.frame(plotcode = names(climate_dist_dflist)[i], 
                             ssp = "ssp585", 
-                            t = climate_dist_dflist[[i]]$ssp585$climate$t, 
-                            sgdd = climate_dist_dflist[[i]]$ssp585$climate$sgdd, 
-                            wai = climate_dist_dflist[[i]]$ssp585$climate$wai))
+                            t = climate_dist_dflist[[i]]$rep1$ssp585$climate$t, 
+                            sgdd = climate_dist_dflist[[i]]$rep1$ssp585$climate$sgdd, 
+                            wai = climate_dist_dflist[[i]]$rep1$ssp585$climate$wai))
     
     # Add plot data to the output dataset
     if(i == 1) df = df.i
@@ -206,72 +206,58 @@ plot_sp.composition_SDM = function(sp.composition_SDM, file.out){
 #' Function to calculate phi for the SDM analysis
 #' @param sp.composition_SDM species composition at each timestep per scenario
 #' @param data_pool output of simulations with regional pool formatted 
-get_phi_per_scenario_SDM = function(sp.composition_SDM, data_pool){
+get_delta_per_scenario_SDM = function(sp.composition_SDM, data_pool){
   
   # Calculate the range of each composition variable per climate 
   #     with same approach as in the simulations
-  data_range = data_pool %>% 
-    filter(time == 70 & ssp == "ssp126" & dist == "nodist" & metric == "BA") %>%
-    dplyr::select(plotcode, variable, value) %>%
-    distinct() %>%
-    group_by(variable) %>%
-    summarize(q05 = quantile(value, 0.05, na.rm = TRUE), 
-              q95 = quantile(value, 0.95, na.rm = TRUE)) %>%
-    mutate(range = abs(q95 - q05)) %>%
-    dplyr::select(var = variable, range)
+  data_range = data_pool %>%
+    filter(metric == "BA") %>%
+    group_by(plotcode, variable, rep) %>%
+    summarize(min = min(value, na.rm = TRUE), 
+              max = max(value, na.rm = TRUE)) %>%
+    mutate(diff = max - min) %>%
+    ungroup() %>% group_by(variable) %>%
+    summarize(range = mean(diff, na.rm = TRUE))
   
   # Calculate phi per scenario
   out = sp.composition_SDM %>%
-    pivot_longer(names_to = "var", values_to = "value", 
-                 cols = c("H", "FD", "cwm1", "cwm2")) %>% 
-    # Calculate difference between scenarios
-    pivot_wider(names_from = ssp, values_from = value) %>%
-    mutate(phi_raw = ssp585 - ssp126) %>%
-    # Remove beginning of simulations
-    filter(t >= 70) %>%
-    # Add initial phi
-    left_join((.) %>% filter(t%in% c(70:75)) %>% group_by(climate, var) %>%
-                summarize(phi.init = mean(phi_raw, na.rm = TRUE)), 
-              by = c("climate", "var")) %>%
-    # Add final phi
-    left_join((.) %>% filter(t%in% c(105:110)) %>% group_by(climate, var) %>%
-                summarize(phi.final = mean(phi_raw, na.rm = TRUE)), 
-              by = c("climate", "var")) %>%
-    # Calculate phi
-    group_by(climate, var) %>%
-    summarize(phi = mean(phi_raw), 
-              phi.rate = (mean(phi.final) - mean(phi.init))/n()) %>%
-    ungroup() %>%
-    # Add phi calculated as a percentage of the range observed
-    left_join(data_range, by = c("var")) %>%
-    mutate(phi.percent = phi/range*100, 
-           phi.rate.percent = phi.rate/range*100) %>%
-    # Remove range
-    dplyr::select(-range)
+    pivot_longer(names_to = "variable", values_to = "value", 
+                 cols = c("H", "FD", "cwm1", "cwm2")) %>%
+    filter(t %in% range(data_pool$time)) %>%
+    mutate(time_cat = ifelse(t == min(data_pool$time), "tmin", "tmax")) %>%
+    dplyr::select(- t) %>%
+    pivot_wider(names_from = "time_cat", values_from = "value") %>%
+    mutate(Delta = tmax - tmin) %>%
+    dplyr::select(-tmin, -tmax) %>% 
+    pivot_wider(names_from = ssp, values_from = Delta) %>%
+    left_join(data_range, by = c("variable")) %>%
+    mutate(delta = (ssp585 - ssp126)/range*100) %>%
+    dplyr::select(-range, -ssp585, -ssp126)
   
   # Return output
   return(out)
   
 }
 
-#' Function to plot the comparison of phi in simulations and in SDM
-#' @param phi_per_climate_SDM phi calculated from SDM 
-#' @param phi_per_scenario phi calculated from simlulations
+
+#' Function to plot the comparison of delta in simulations and in SDM
+#' @param delta_per_climate_SDM phi calculated from SDM 
+#' @param delta phi calculated from simlulations
 #' @param file.out Name of the file to save, including path
-plot_phi_simulations_vs_SDM = function(
-    phi_per_climate_SDM, phi_per_scenario, file.out){
+plot_delta_simulations_vs_SDM = function(
+    delta_per_climate_SDM, delta, file.out){
   
   # Create output directory if needed
   create_dir_if_needed(file.out)
   
   # Plot of phi dereived from simulations
-  plot.simulations = phi_per_scenario %>%
-    filter(pool == "pool" & dist.scenario == "dist" & metric == "BA") %>%
+  plot.simulations = delta %>%
+    filter(pool == "pool" & dist == "dist" & metric == "BA") %>%
     mutate(climate = factor(climate, levels = paste0("clim", c(1:10))), 
            variable = factor(variable, levels = c("H", "FD", "cwm1", "cwm2"))) %>%
     group_by(climate, variable) %>%
-    summarize(mean = mean(phi.rate.percent, na.rm = TRUE), 
-              se = sd(phi.rate.percent, na.rm = TRUE)/sqrt(n())) %>% 
+    summarize(mean = mean(delta, na.rm = TRUE), 
+              se = sd(delta, na.rm = TRUE)/sqrt(n())) %>% 
     ggplot(aes(x = climate)) + 
     geom_hline(yintercept = 0, linetype = "dashed", color = "darkgrey") +
     geom_errorbar(aes(ymin = mean - se, ymax = mean + se), width = 0) +
@@ -281,14 +267,13 @@ plot_phi_simulations_vs_SDM = function(
           panel.grid = element_blank(), 
           strip.background = element_blank(), 
           axis.text.x = element_text(angle = 90)) + 
-    ylab("Phi (% of range observed per year)") + xlab("")
+    ylab("\u03b4 (% of average\ncommunity change)") + xlab("")
   
   # Plot of phi derived from SDM
-  plot.SDM = phi_per_climate_SDM %>% 
-    rename(variable = var) %>%
+  plot.SDM = delta_per_climate_SDM %>% 
     mutate(climate = factor(climate, levels = paste0("clim", c(1:10))), 
            variable = factor(variable, levels = c("H", "FD", "cwm1", "cwm2"))) %>% 
-    ggplot(aes(x = climate, y = phi.rate.percent)) + 
+    ggplot(aes(x = climate, y = delta)) + 
     geom_hline(yintercept = 0, linetype = "dashed", color = "darkgrey") +
     geom_point(shape = 21, color = "black", fill = "grey") + 
     facet_wrap( ~ variable) + 
@@ -296,7 +281,7 @@ plot_phi_simulations_vs_SDM = function(
           panel.grid = element_blank(), 
           strip.background = element_blank(), 
           axis.text.x = element_text(angle = 90)) + 
-    ylab("Phi (% of range observed per year)") + xlab("")
+    ylab("\u03b4 (% of average\ncommunity change)") + xlab("")
   
   # Assemble the two plots
   plot.out = plot_grid(plot.simulations, plot.SDM, align = "hv", nrow = 1,

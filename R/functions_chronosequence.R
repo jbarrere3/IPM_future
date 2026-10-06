@@ -612,6 +612,7 @@ plot_chronosequence = function(plots_selected_chronoseq, sim_output_chronoseq,
     rbind(sp_and_clim_chronoseq %>%
             mutate(age = round(age/20, digits = 0)*20) %>%
             mutate(source = "chronosequence") %>%
+            filter(climate != "clim1") %>%
             dplyr::select(plotcode, climate, age, H, cwm_GrSurv, cwm_ShadeDrought, 
                           FD, source)) %>%
     # Average composition
